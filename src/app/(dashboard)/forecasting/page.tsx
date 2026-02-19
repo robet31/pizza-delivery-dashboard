@@ -726,12 +726,21 @@ export default function ForecastingPage() {
                     <CardContent>
                       {result.insights && (
                         <ul className="space-y-3 text-slate-700">
-                          {result.insights.split('\n').filter(line => line.trim()).map((line, i) => (
-                            <li key={i} className="flex items-start gap-2">
-                              <span className="text-blue-500 mt-1">•</span>
-                              <span className="leading-relaxed">{line}</span>
-                            </li>
-                          ))}
+                          {Array.isArray(result.insights) ? (
+                            result.insights.map((line: string, i: number) => (
+                              <li key={i} className="flex items-start gap-2">
+                                <span className="text-blue-500 mt-1">•</span>
+                                <span className="leading-relaxed">{line}</span>
+                              </li>
+                            ))
+                          ) : (
+                            result.insights.split('\n').filter((line: string) => line.trim()).map((line: string, i: number) => (
+                              <li key={i} className="flex items-start gap-2">
+                                <span className="text-blue-500 mt-1">•</span>
+                                <span className="leading-relaxed">{line}</span>
+                              </li>
+                            ))
+                          )}
                         </ul>
                       )}
                     </CardContent>
@@ -746,12 +755,21 @@ export default function ForecastingPage() {
                     <CardContent>
                       {result.recommendations && (
                         <ul className="space-y-3 text-slate-700">
-                          {result.recommendations.split('\n').filter(line => line.trim()).map((line, i) => (
-                            <li key={i} className="flex items-start gap-2">
-                              <span className="text-green-500 mt-1">•</span>
-                              <span className="leading-relaxed">{line}</span>
-                            </li>
-                          ))}
+                          {Array.isArray(result.recommendations) ? (
+                            result.recommendations.map((line: string, i: number) => (
+                              <li key={i} className="flex items-start gap-2">
+                                <span className="text-green-500 mt-1">•</span>
+                                <span className="leading-relaxed">{line}</span>
+                              </li>
+                            ))
+                          ) : (
+                            result.recommendations.split('\n').filter((line: string) => line.trim()).map((line: string, i: number) => (
+                              <li key={i} className="flex items-start gap-2">
+                                <span className="text-green-500 mt-1">•</span>
+                                <span className="leading-relaxed">{line}</span>
+                              </li>
+                            ))
+                          )}
                         </ul>
                       )}
                     </CardContent>
