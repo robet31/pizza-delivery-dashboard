@@ -155,17 +155,78 @@ export default function ForecastingPage() {
           trendDesc = `➡️ Nilai diprediksi akan STABIL dengan perubahan sekitar ${change.toFixed(1)}%.`
         }
 
+        // Calculate yearly/monthly breakdown
+        const periodGroups: { [key: string]: { actual: number[]; forecast: number[] } } = {}
+        forecastData.historical.forEach((h: { date: string; actual: number }, i: number) => {
+          const period = h.date.substring(0, 7) // Get YYYY-MM
+          if (!periodGroups[period]) periodGroups[period] = { actual: [], forecast: [] }
+          periodGroups[period].actual.push(h.actual)
+        })
+        
+        let periodInsights = '\n\n📅 Analisis per Periode:\n'
+        const sortedPeriods = Object.keys(periodGroups).sort()
+        sortedPeriods.forEach(period => {
+          const avgActual = periodGroups[period].actual.reduce((a, b) => a + b, 0) / periodGroups[period].actual.length
+          periodInsights += `- ${period}: Rata-rata ${formatValue(avgActual)}\n`
+        })
+
         let insights = `Berdasarkan data historis selama ${forecastData.historical.length} periode, rata-rata nilai ${valueColumn.replace(/_/g, ' ')} adalah ${formatValue(avgHistorical)}. `
         insights += `Prediksi untuk ${forecastData.forecast.length} periode ke depan menunjukkan rata-rata ${formatValue(avgForecast)}. `
         insights += trendDesc
+        insights += periodInsights
 
         let recommendations = ''
         if (valueColumn.includes('duration') || valueColumn.includes('time')) {
-          recommendations = '💡 Rekomendasi: Jika prediksi menunjukkan peningkatan waktu pengiriman, pertimbangkan untuk menambah driver atau mengoptimalkan rute delivery.'
+          if (change > 10) {
+            recommendations = '🚨 WARNING: Prediksi menunjukkan KENAIKAN signifikan pada waktu pengiriman! Segera:\n' +
+              '1. Tambah driver/motor pengirim\n' +
+              '2. Optimalkan rute delivery dengan GPS\n' +
+              '3. Siapkan driver cadangan untuk jam sibuk\n' +
+              '4. Koordinasi dengan kitchen untuk faster preparation'
+          } else if (change > 5) {
+            recommendations = '⚠️ Peringatan: Waktu pengiriman diprediksi naik. Pertimbangkan:\n' +
+              '1. Menambah driver di jam sibuk\n' +
+              '2. Memperbaiki packing process\n' +
+              '3. Monitoring order queue lebih ketat'
+          } else if (change < -5) {
+            recommendations = '✅ Baik: Waktu pengiriman diprediksi lebih cepat! Pertahankan dengan:\n' +
+              '1. Catat best practices yang sudah diterapkan\n' +
+              '2. Training driver untuk efficiency\n' +
+              '3. Maintain rute optimal'
+          } else {
+            recommendations = '✅ Stabil: Waktu pengiriman diprediksi tetap stabil. Lanjutkan:\n' +
+              '1. Monitoring regularity\n' +
+              '2. Jaga quality service\n' +
+              '3. Persiapkan contingency plan jika needed'
+          }
         } else if (valueColumn.includes('distance')) {
-          recommendations = '💡 Rekomendasi: Jika prediksi menunjukkan peningkatan jarak, pertimbangkan untuk memperluas area layanan atau menambah titik distribusi.'
+          if (change > 10) {
+            recommendations = '🚨 WARNING: Jarak pengiriman diprediksi NAIK signifikan! Pertimbangkan:\n' +
+              '1. Tambah outlet/gerai baru\n' +
+              '2. Promo untuk area dekat outlet\n' +
+              '3. Optimasi zona delivery'
+          } else if (change > 5) {
+            recommendations = '⚠️ Peringatan: Jarak pengiriman meningkat. Evaluasi:\n' +
+              '1. Strategi marketing per area\n' +
+              '2. Penyesuaian ongkir'
+          } else {
+            recommendations = '✅ Jarak pengiriman stabil. Tingkatkan:\n' +
+              '1. Customer di area dekat outlet\n' +
+              '2. Delivery efficiency'
+          }
         } else if (valueColumn.includes('delay')) {
-          recommendations = '💡 Rekomendasi: Jika prediksi menunjukkan peningkatan keterlambatan, evaluasi proses persiapan dan pengiriman untuk mengurangi delay.'
+          if (change > 10) {
+            recommendations = '🚨 WARNING: Keterlambatan diprediksi NAIK tajam! Segera:\n' +
+              '1. Investigasi root cause\n' +
+              '2. Tambah staff kitchen\n' +
+              '3. Perbaiki quality control'
+          } else if (change > 5) {
+            recommendations = '⚠️ Warning: Keterlambatan meningkat. Evaluasi:\n' +
+              '1. Proses preparation\n' +
+              '2. Staffing schedule'
+          } else {
+            recommendations = '✅ Keterlambatan terkontrol. Jaga performa!'
+          }
         } else {
           recommendations = '💡 Rekomendasi: Gunakan data ini untuk perencanaan staffing dan inventory di periode mendatang.'
         }
@@ -478,13 +539,18 @@ export default function ForecastingPage() {
                               backgroundColor: '#fff', 
                               border: '1px solid #e2e8f0',
                               borderRadius: '12px',
-                              boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
+                              boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                              padding: '12px'
                             }}
-                            formatter={(value) => [
-                              (value as number) > 0 ? formatValue(value as number) : '-',
-                              'Prediksi'
-                            ]}
-                            labelStyle={{ color: '#1e293b', fontWeight: 600 }}
+                            formatter={(value, name) => {
+                              const numVal = Number(value)
+                              if (name === 'Aktual') {
+                                return [numVal > 0 ? formatValue(numVal) : '-', '📊 Data Aktual (Dari Database)']
+                              } else {
+                                return [numVal > 0 ? formatValue(numVal) : '-', '🔮 Hasil Prediksi']
+                              }
+                            }}
+                            labelStyle={{ color: '#1e293b', fontWeight: 600, marginBottom: '8px' }}
                           />
                           <Legend 
                             wrapperStyle={{ paddingTop: '20px' }}
