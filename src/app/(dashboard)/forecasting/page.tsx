@@ -123,23 +123,26 @@ function ScrollableLineChart({
   }
   
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between text-sm">
-        <div className="flex items-center gap-4">
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
-            <div className="w-4 h-1 rounded-full" style={{ backgroundColor: color }} />
-            <span className="text-slate-600 text-sm">Data Aktual</span>
+            <div className="w-6 h-3 rounded-full" style={{ backgroundColor: color }} />
+            <span className="text-slate-700 font-medium">Data Aktual</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-4 h-1 rounded-full" style={{ backgroundColor: forecastColor }} />
-            <span className="text-slate-600 text-sm">Prediksi</span>
+            <div className="w-6 h-3 rounded-full" style={{ backgroundColor: forecastColor, opacity: 0.7 }} />
+            <span className="text-slate-700 font-medium">Prediksi</span>
+          </div>
+          <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-green-100 rounded-full">
+            <span className="text-green-700 text-sm">📈 Tren: {forecast[forecast.length - 1] > historical[historical.length - 1]?.actual ? 'Naik' : 'Stabil'}</span>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => scroll('left')} disabled={scrollPosition <= 0}>
             <ChevronLeft className="w-4 h-4" />
           </Button>
-          <span className="text-xs text-slate-400">
+          <span className="text-xs text-slate-400 min-w-[50px] text-center">
             {Math.round((scrollPosition / (maxScroll || 1)) * 100)}%
           </span>
           <Button variant="outline" size="sm" onClick={() => scroll('right')} disabled={scrollPosition >= maxScroll}>
@@ -212,14 +215,35 @@ function ScrollableLineChart({
             />
             
             {historicalPoints.length > 1 && (
-              <path
-                d={`M ${historicalPoints.map(p => `${p.x},${p.y}`).join(' L ')}`}
-                fill="none"
-                stroke={color}
-                strokeWidth="3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
+              <>
+                <defs>
+                  <linearGradient id="actualGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stopColor={color} stopOpacity="0.3"/>
+                    <stop offset="100%" stopColor={color} stopOpacity="0.05"/>
+                  </linearGradient>
+                  <linearGradient id="forecastGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stopColor={forecastColor} stopOpacity="0.3"/>
+                    <stop offset="100%" stopColor={forecastColor} stopOpacity="0.05"/>
+                  </linearGradient>
+                </defs>
+                <path
+                  d={`M ${historicalPoints[0].x},${chartHeight - padding.bottom} L ${historicalPoints.map(p => `${p.x},${p.y}`).join(' L ')} L ${historicalPoints[historicalPoints.length - 1].x},${chartHeight - padding.bottom} Z`}
+                  fill="url(#actualGradient)"
+                />
+                <path
+                  d={`M ${historicalPoints.map(p => `${p.x},${p.y}`).join(' L ')} L ${forecastPoints.map(p => `${p.x},${p.y}`).join(' L ')} L ${forecastPoints[forecastPoints.length - 1].x},${chartHeight - padding.bottom} Z`}
+                  fill="url(#forecastGradient)"
+                  opacity="0.7"
+                />
+                <path
+                  d={`M ${historicalPoints.map(p => `${p.x},${p.y}`).join(' L ')}`}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </>
             )}
             
             {forecastPoints.length > 0 && historicalPoints.length > 0 && (
@@ -558,13 +582,13 @@ export default function ForecastingPage() {
     <div className="min-h-screen bg-slate-50">
       <div className="text-white p-6 md:p-8" style={{ background: 'linear-gradient(135deg, rgb(72, 148, 199) 0%, rgb(70, 147, 198) 100%)' }}>
         <div className="max-w-7xl mx-auto">
-          <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-3">
-            <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
-              <TrendingUp className="w-6 h-6" />
+          <h1 className="text-3xl md:text-4xl font-bold flex items-center gap-3">
+            <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+              <TrendingUp className="w-7 h-7" />
             </div>
             Forecasting (Prediksi)
           </h1>
-          <p className="mt-2 text-xs md:text-base" style={{ color: 'rgba(255,255,255,0.8)' }}>
+          <p className="mt-3 text-lg md:text-xl" style={{ color: 'rgba(255,255,255,0.9)' }}>
             Prediksi data masa depan berdasarkan data historis - mudah dipahami!
           </p>
         </div>
@@ -692,12 +716,12 @@ export default function ForecastingPage() {
               <div className="space-y-6">
                 <Card>
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <LineChart className="w-5 h-5" />
+                    <CardTitle className="text-xl flex items-center gap-2">
+                      <LineChart className="w-6 h-6" />
                       Grafik Prediksi - {getValueColumnDescription(valueColumn)}
                     </CardTitle>
-                    <CardDescription>
-                      Garis biru = data aktual | Garis hijau putus-putus = prediksi | Scroll untuk melihat lebih detail
+                    <CardDescription className="text-base">
+                      Perbandingan data aktual (biru) vs prediksi (hijau) - lihat trennya langsung!
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
