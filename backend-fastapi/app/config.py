@@ -4,8 +4,8 @@ import os
 
 
 class Settings(BaseSettings):
-    # Database Configuration - use SQLite for local testing
-    database_url: str = "sqlite:///./pizza.db"
+    # Database Configuration - use absolute path to Prisma database
+    database_url: str = "sqlite:////D:/SEMESTER 6 (MBKM) dll/NEWW/Pizza_Terbaru/Project-Jatim-Stell-Concepts-Planning/prisma/dev.db"
 
     # Application Configuration
     app_name: str = "Pizza Restaurant API"

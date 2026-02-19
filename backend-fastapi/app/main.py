@@ -7,6 +7,10 @@ from .routers import (
     restaurants_router,
     delivery_data_router,
     analytics_router,
+    export_clean_router,
+    forecasting_router,
+    recommendation_router,
+    analytics_data_router,
 )
 
 app = FastAPI(
@@ -81,6 +85,22 @@ app.include_router(
 
 app.include_router(
     analytics_router, prefix="/api/v1/analytics", tags=["Analytics - Polars"]
+)
+
+app.include_router(
+    export_clean_router, prefix="/api/v1/export-clean", tags=["Export & Clean"]
+)
+
+app.include_router(
+    forecasting_router, prefix="/api/v1/forecasting", tags=["Forecasting"]
+)
+
+app.include_router(
+    recommendation_router, prefix="/api/v1/recommendation", tags=["Recommendation"]
+)
+
+app.include_router(
+    analytics_data_router, prefix="/api/v1/analytics-data", tags=["Analytics Data"]
 )
 
 
