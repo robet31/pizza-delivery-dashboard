@@ -145,35 +145,40 @@ export default function ForecastingPage() {
         const avgHistorical = forecastData.historical.reduce((a: number, b: {actual: number}) => a + b.actual, 0) / forecastData.historical.length
         const avgForecast = forecastData.forecast.reduce((a: number, b: number) => a + b, 0) / forecastData.forecast.length
         const change = ((avgForecast - avgHistorical) / avgHistorical) * 100
+        const lastActual = forecastData.historical[forecastData.historical.length - 1]?.actual || 0
+        const lastForecast = forecastData.forecast[forecastData.forecast.length - 1] || 0
+        const lastChange = ((lastForecast - lastActual) / lastActual) * 100
         
-        let trendDesc = ''
-        if (change > 5) {
-          trendDesc = `📈 Ada kecenderungan PENINGKATAN sebesar ${change.toFixed(1)}% dari rata-rata historis.`
-        } else if (change < -5) {
-          trendDesc = `📉 Ada kecenderungan PENURUNAN sebesar ${Math.abs(change).toFixed(1)}% dari rata-rata historis.`
-        } else {
-          trendDesc = `➡️ Nilai diprediksi akan STABIL dengan perubahan sekitar ${change.toFixed(1)}%.`
+        let trendStatus = ''
+        if (change > 10) trendStatus = '🚀 NAIK SIGNIFIKAN'
+        else if (change > 5) trendStatus = '📈 NAIK'
+        else if (change < -10) trendStatus = '📉 TURUN SIGNIFIKAN'
+        else if (change < -5) trendStatus = '📉 TURUN'
+        else trendStatus = '➡️ STABIL'
+
+        let insights = [
+          `📊 Data historis: ${forecastData.historical.length} periode dengan rata-rata ${formatValue(avgHistorical)}`,
+          `🔮 Hasil prediksi: ${forecastData.forecast.length} periode ke depan dengan rata-rata ${formatValue(avgForecast)}`,
+          `📈 Perubahan rata-rata: ${change > 0 ? '+' : ''}${change.toFixed(1)}% (${trendStatus})`,
+          `📉 Data terakhir: Dari ${formatValue(lastActual)} → Prediksi ${formatValue(lastForecast)} (${lastChange > 0 ? '+' : ''}${lastChange.toFixed(1)}%)`
+        ]
+
+        // Add period breakdown
+        const periodGroups: { [key: string]: number[] } = {}
+        forecastData.historical.forEach((h: { date: string; actual: number }) => {
+          const period = h.date.length >= 7 ? h.date.substring(0, 7) : h.date
+          if (!periodGroups[period]) periodGroups[period] = []
+          periodGroups[period].push(h.actual)
+        })
+        
+        if (Object.keys(periodGroups).length > 1) {
+          insights.push('')
+          insights.push('📅 Ringkasan per Periode:')
+          Object.keys(periodGroups).sort().forEach(period => {
+            const avg = periodGroups[period].reduce((a, b) => a + b, 0) / periodGroups[period].length
+            insights.push(`   • ${period}: ${formatValue(avg)}`)
+          })
         }
-
-        // Calculate yearly/monthly breakdown
-        const periodGroups: { [key: string]: { actual: number[]; forecast: number[] } } = {}
-        forecastData.historical.forEach((h: { date: string; actual: number }, i: number) => {
-          const period = h.date.substring(0, 7) // Get YYYY-MM
-          if (!periodGroups[period]) periodGroups[period] = { actual: [], forecast: [] }
-          periodGroups[period].actual.push(h.actual)
-        })
-        
-        let periodInsights = '\n\n📅 Analisis per Periode:\n'
-        const sortedPeriods = Object.keys(periodGroups).sort()
-        sortedPeriods.forEach(period => {
-          const avgActual = periodGroups[period].actual.reduce((a, b) => a + b, 0) / periodGroups[period].actual.length
-          periodInsights += `- ${period}: Rata-rata ${formatValue(avgActual)}\n`
-        })
-
-        let insights = `Berdasarkan data historis selama ${forecastData.historical.length} periode, rata-rata nilai ${valueColumn.replace(/_/g, ' ')} adalah ${formatValue(avgHistorical)}. `
-        insights += `Prediksi untuk ${forecastData.forecast.length} periode ke depan menunjukkan rata-rata ${formatValue(avgForecast)}. `
-        insights += trendDesc
-        insights += periodInsights
 
         let recommendations = ''
         if (valueColumn.includes('duration') || valueColumn.includes('time')) {
@@ -715,26 +720,40 @@ export default function ForecastingPage() {
                   <Card className="border-l-4 border-l-blue-500">
                     <CardHeader>
                       <CardTitle className="text-lg flex items-center gap-2">
-                        💡 Apa yang bisa disimpulkan?
+                        💡 Kesimpulan Utama
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <p className="text-slate-700 leading-relaxed">
-                        {result.insights}
-                      </p>
+                      {result.insights && (
+                        <ul className="space-y-3 text-slate-700">
+                          {result.insights.split('\n').filter(line => line.trim()).map((line, i) => (
+                            <li key={i} className="flex items-start gap-2">
+                              <span className="text-blue-500 mt-1">•</span>
+                              <span className="leading-relaxed">{line}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </CardContent>
                   </Card>
                   
                   <Card className="border-l-4 border-l-green-500">
                     <CardHeader>
                       <CardTitle className="text-lg flex items-center gap-2">
-                        🎯 Rekomendasi untuk Bisnis
+                        🎯 Rekomendasi Aksi
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <p className="text-slate-700 leading-relaxed">
-                        {result.recommendations}
-                      </p>
+                      {result.recommendations && (
+                        <ul className="space-y-3 text-slate-700">
+                          {result.recommendations.split('\n').filter(line => line.trim()).map((line, i) => (
+                            <li key={i} className="flex items-start gap-2">
+                              <span className="text-green-500 mt-1">•</span>
+                              <span className="leading-relaxed">{line}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </CardContent>
                   </Card>
                 </div>
