@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { 
@@ -8,23 +8,32 @@ import {
   Loader2,
   AlertCircle,
   Info,
-  Calendar,
-  BarChart3,
-  LineChart,
-  Download,
-  FileSpreadsheet,
-  FileJson,
   RefreshCw,
   Settings,
   HelpCircle,
-  ChevronLeft,
-  ChevronRight,
-  Maximize2,
-  Minimize2
+  Download,
+  FileSpreadsheet,
+  FileJson,
+  BarChart3,
+  TrendingDown,
+  Minus
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { 
+  LineChart, 
+  Line, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  Legend, 
+  ResponsiveContainer,
+  Area,
+  ComposedChart,
+  Bar
+} from 'recharts'
 
 interface ForecastResult {
   success?: boolean
@@ -41,326 +50,11 @@ interface DataSummary {
   total_orders?: number
 }
 
-const COLORS = {
-  primary: '#3b82f6',
-  secondary: '#8b5cf6',
-  accent: '#10b981',
-  warning: '#f59e0b',
-}
-
-function ScrollableLineChart({ 
-  historical, 
-  forecast,
-  valueColumn,
-  color = COLORS.primary,
-  forecastColor = COLORS.accent 
-}: { 
-  historical: { date: string; actual: number; forecast: number }[]
-  forecast: number[]
-  valueColumn: string
-  color?: string
-  forecastColor?: string
-}) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [scrollPosition, setScrollPosition] = useState(0)
-  const [isFullscreen, setIsFullscreen] = useState(false)
-  const [hoveredData, setHoveredData] = useState<{type: string; value: number; date: string} | null>(null)
-  
-  const totalPoints = historical.length + forecast.length
-  const pointWidth = 80
-  const chartWidth = totalPoints * pointWidth
-  
-  if (!historical?.length) return <div className="h-64 flex items-center justify-center text-slate-400">Tidak ada data</div>
-  
-  const allValues = [...historical.map(h => h.actual), ...(forecast || [])]
-  const maxVal = Math.max(...allValues) * 1.1
-  const minVal = Math.min(...allValues) * 0.9
-  const range = maxVal - minVal || 1
-  
-  const chartHeight = isFullscreen ? 400 : 300
-  const padding = { top: 30, right: 30, bottom: 50, left: 60 }
-  
-  const getY = (val: number) => padding.top + chartHeight - padding.bottom - ((val - minVal) / range) * (chartHeight - padding.top - padding.bottom)
-  
-  const getX = (index: number) => padding.left + (index / (totalPoints - 1)) * (chartWidth || 300)
-  
-  const historicalPoints = historical.map((h, i) => ({
-    x: getX(i),
-    y: getY(h.actual),
-    data: h
-  }))
-  
-  const forecastPoints = forecast.map((f, i) => ({
-    x: getX(historical.length + i),
-    y: getY(f),
-    value: f,
-    label: `Prediksi ${i + 1}`
-  }))
-  
-  const maxScroll = Math.max(0, chartWidth - (containerRef.current?.clientWidth || 800) + padding.left + padding.right)
-  
-  const scroll = (direction: 'left' | 'right') => {
-    const scrollAmount = 300
-    if (containerRef.current) {
-      const newPos = direction === 'right' 
-        ? Math.min(scrollPosition + scrollAmount, maxScroll)
-        : Math.max(scrollPosition - scrollAmount, 0)
-      containerRef.current.scrollTo({ left: newPos, behavior: 'smooth' })
-      setScrollPosition(newPos)
-    }
-  }
-
-  const formatValue = (val: number) => {
-    if (valueColumn.includes('duration') || valueColumn.includes('time')) return `${val.toFixed(1)} menit`
-    if (valueColumn.includes('distance')) return `${val.toFixed(1)} km`
-    if (valueColumn.includes('delay')) return `${val.toFixed(1)} menit`
-    return val.toFixed(1)
-  }
-
-  const formatLabel = (label: string) => {
-    if (label.length > 10) return label.substring(0, 8) + '...'
-    return label
-  }
-  
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-3 rounded-full" style={{ backgroundColor: color }} />
-            <span className="text-slate-700 font-medium">Data Aktual</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-3 rounded-full" style={{ backgroundColor: forecastColor, opacity: 0.7 }} />
-            <span className="text-slate-700 font-medium">Prediksi</span>
-          </div>
-          <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-green-100 rounded-full">
-            <span className="text-green-700 text-sm">📈 Tren: {forecast[forecast.length - 1] > historical[historical.length - 1]?.actual ? 'Naik' : 'Stabil'}</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => scroll('left')} disabled={scrollPosition <= 0}>
-            <ChevronLeft className="w-4 h-4" />
-          </Button>
-          <span className="text-xs text-slate-400 min-w-[50px] text-center">
-            {Math.round((scrollPosition / (maxScroll || 1)) * 100)}%
-          </span>
-          <Button variant="outline" size="sm" onClick={() => scroll('right')} disabled={scrollPosition >= maxScroll}>
-            <ChevronRight className="w-4 h-4" />
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setIsFullscreen(!isFullscreen)}>
-            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-          </Button>
-        </div>
-      </div>
-      
-      <div 
-        ref={containerRef}
-        className="relative overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-slate-100"
-        style={{ scrollBehavior: 'smooth' }}
-      >
-        <div 
-          className="relative bg-gradient-to-b from-blue-50 to-white rounded-xl border border-slate-200"
-          style={{ 
-            width: `${chartWidth + padding.left + padding.right}px`, 
-            height: `${chartHeight + padding.top + padding.bottom}px` 
-          }}
-        >
-          <svg 
-            width={chartWidth + padding.left + padding.right} 
-            height={chartHeight + padding.top + padding.bottom}
-            className="absolute top-0 left-0"
-          >
-            {[0, 0.25, 0.5, 0.75, 1].map((tick, i) => {
-              const y = padding.top + (chartHeight - padding.top - padding.bottom) * tick
-              const val = maxVal - (maxVal - minVal) * tick
-              return (
-                <g key={i}>
-                  <line 
-                    x1={padding.left} 
-                    y1={y} 
-                    x2={chartWidth + padding.left - padding.right} 
-                    y2={y} 
-                    stroke="#e2e8f0" 
-                    strokeDasharray="4,4"
-                  />
-                  <text 
-                    x={padding.left - 10} 
-                    y={y + 4} 
-                    textAnchor="end" 
-                    fontSize="11" 
-                    fill="#64748b"
-                  >
-                    {formatValue(val)}
-                  </text>
-                </g>
-              )
-            })}
-            
-            <line
-              x1={padding.left}
-              y1={padding.top}
-              x2={padding.left}
-              y2={chartHeight - padding.bottom}
-              stroke="#e2e8f0"
-              strokeWidth="2"
-            />
-            <line
-              x1={padding.left}
-              y1={chartHeight - padding.bottom}
-              x2={chartWidth + padding.left - padding.right}
-              y2={chartHeight - padding.bottom}
-              stroke="#e2e8f0"
-              strokeWidth="2"
-            />
-            
-            {historicalPoints.length > 1 && (
-              <>
-                <defs>
-                  <linearGradient id="actualGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                    <stop offset="0%" stopColor={color} stopOpacity="0.3"/>
-                    <stop offset="100%" stopColor={color} stopOpacity="0.05"/>
-                  </linearGradient>
-                  <linearGradient id="forecastGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                    <stop offset="0%" stopColor={forecastColor} stopOpacity="0.3"/>
-                    <stop offset="100%" stopColor={forecastColor} stopOpacity="0.05"/>
-                  </linearGradient>
-                </defs>
-                <path
-                  d={`M ${historicalPoints[0].x},${chartHeight - padding.bottom} L ${historicalPoints.map(p => `${p.x},${p.y}`).join(' L ')} L ${historicalPoints[historicalPoints.length - 1].x},${chartHeight - padding.bottom} Z`}
-                  fill="url(#actualGradient)"
-                />
-                <path
-                  d={`M ${historicalPoints.map(p => `${p.x},${p.y}`).join(' L ')} L ${forecastPoints.map(p => `${p.x},${p.y}`).join(' L ')} L ${forecastPoints[forecastPoints.length - 1].x},${chartHeight - padding.bottom} Z`}
-                  fill="url(#forecastGradient)"
-                  opacity="0.7"
-                />
-                <path
-                  d={`M ${historicalPoints.map(p => `${p.x},${p.y}`).join(' L ')}`}
-                  fill="none"
-                  stroke={color}
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </>
-            )}
-            
-            {forecastPoints.length > 0 && historicalPoints.length > 0 && (
-              <path
-                d={`M ${historicalPoints[historicalPoints.length - 1].x},${historicalPoints[historicalPoints.length - 1].y} L ${forecastPoints.map(p => `${p.x},${p.y}`).join(' L ')}`}
-                fill="none"
-                stroke={forecastColor}
-                strokeWidth="3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeDasharray="8,4"
-              />
-            )}
-            
-            {historicalPoints.map((p, i) => (
-              <g key={`h-${i}`}>
-                <circle
-                  cx={p.x}
-                  cy={p.y}
-                  r="6"
-                  fill={color}
-                  stroke="white"
-                  strokeWidth="2"
-                  className="cursor-pointer hover:r-8 transition-all"
-                  onMouseEnter={() => setHoveredData({type: 'Aktual', value: p.data.actual, date: p.data.date})}
-                  onMouseLeave={() => setHoveredData(null)}
-                />
-              </g>
-            ))}
-            
-            {forecastPoints.map((p, i) => (
-              <g key={`f-${i}`}>
-                <circle
-                  cx={p.x}
-                  cy={p.y}
-                  r="6"
-                  fill={forecastColor}
-                  stroke="white"
-                  strokeWidth="2"
-                  className="cursor-pointer"
-                  onMouseEnter={() => setHoveredData({type: 'Prediksi', value: p.value, date: p.label})}
-                  onMouseLeave={() => setHoveredData(null)}
-                />
-              </g>
-            ))}
-            
-            {historical.map((h, i) => (
-              <text 
-                key={`label-h-${i}`}
-                x={historicalPoints[i]?.x || 0}
-                y={chartHeight - padding.bottom + 20}
-                textAnchor="middle"
-                fontSize="10"
-                fill="#64748b"
-                transform={`rotate(-45, ${historicalPoints[i]?.x || 0}, ${chartHeight - padding.bottom + 20})`}
-              >
-                {formatLabel(h.date)}
-              </text>
-            ))}
-            
-            {forecast.map((_, i) => (
-              <text 
-                key={`label-f-${i}`}
-                x={forecastPoints[i]?.x || 0}
-                y={chartHeight - padding.bottom + 20}
-                textAnchor="middle"
-                fontSize="10"
-                fill="#64748b"
-              >
-                {formatLabel(`Pred ${i+1}`)}
-              </text>
-            ))}
-            
-            <text 
-              x={(chartWidth + padding.left + padding.right) / 2} 
-              y={chartHeight + 5} 
-              textAnchor="middle" 
-              fontSize="12" 
-              fill="#64748b"
-            >
-              Periode Waktu
-            </text>
-            
-            <text 
-              x={15} 
-              y={(chartHeight + padding.top + padding.bottom) / 2} 
-              textAnchor="middle" 
-              fontSize="12" 
-              fill="#64748b"
-              transform={`rotate(-90, 15, ${(chartHeight + padding.top + padding.bottom) / 2})`}
-            >
-              Nilai {valueColumn.replace('_', ' ')}
-            </text>
-          </svg>
-          
-          {hoveredData && (
-            <div 
-              className="absolute bg-slate-800 text-white text-sm px-4 py-2 rounded-lg shadow-lg z-10 pointer-events-none"
-              style={{ 
-                left: '50%', 
-                top: '10px',
-                transform: 'translateX(-50%)'
-              }}
-            >
-              <div className="font-semibold">{hoveredData.date}</div>
-              <div>{hoveredData.type}: {formatValue(hoveredData.value)}</div>
-            </div>
-          )}
-        </div>
-      </div>
-      
-      <div className="flex items-center justify-between text-xs text-slate-400 px-2">
-        <span>← Scroll untuk melihat {valueColumn.replace('_', ' ')} lebih detail</span>
-        <span>{totalPoints} titik data | {historical.length} historis + {forecast.length} prediksi</span>
-      </div>
-    </div>
-  )
+interface ChartDataPoint {
+  name: string
+  Aktual: number
+  Prediksi: number | null
+  isForecast?: boolean
 }
 
 export default function ForecastingPage() {
@@ -379,7 +73,6 @@ export default function ForecastingPage() {
   const [isCalculating, setIsCalculating] = useState(false)
   const [result, setResult] = useState<ForecastResult | null>(null)
   const [error, setError] = useState('')
-  const [showSettings, setShowSettings] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
 
   useEffect(() => {
@@ -567,6 +260,39 @@ export default function ForecastingPage() {
     }
   }
 
+  const getChartData = (): ChartDataPoint[] => {
+    if (!result?.historical || !result?.forecast) return []
+    
+    const data: ChartDataPoint[] = result.historical.map((h, i) => ({
+      name: h.date,
+      Aktual: h.actual,
+      Prediksi: h.forecast
+    }))
+    
+    result.forecast.forEach((f, i) => {
+      data.push({
+        name: `Prediksi ${i + 1}`,
+        Aktual: 0,
+        Prediksi: f,
+        isForecast: true
+      })
+    })
+    
+    return data
+  }
+
+  const getTrend = () => {
+    if (!result?.historical || !result?.forecast) return null
+    const lastActual = result.historical[result.historical.length - 1]?.actual || 0
+    const lastForecast = result.forecast[result.forecast.length - 1] || 0
+    const diff = lastForecast - lastActual
+    const percentChange = (diff / lastActual) * 100
+    
+    if (Math.abs(percentChange) < 5) return { status: 'stabil', color: '#64748b', icon: Minus, text: 'Stabil' }
+    if (percentChange > 0) return { status: 'naik', color: '#10b981', icon: TrendingUp, text: 'Naik' }
+    return { status: 'turun', color: '#ef4444', icon: TrendingDown, text: 'Turun' }
+  }
+
   if (status === 'loading' || isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-900 via-blue-800 to-blue-700">
@@ -577,6 +303,9 @@ export default function ForecastingPage() {
       </div>
     )
   }
+
+  const chartData = getChartData()
+  const trend = getTrend()
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -601,11 +330,11 @@ export default function ForecastingPage() {
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle className="text-lg flex items-center gap-2">
+                    <CardTitle className="text-xl flex items-center gap-2">
                       <Settings className="w-5 h-5" />
                       Pengaturan Prediksi
                     </CardTitle>
-                    <CardDescription>Pilih parameter untuk menghitung prediksi</CardDescription>
+                    <CardDescription className="text-base">Pilih parameter untuk menghitung prediksi</CardDescription>
                   </div>
                   <Button 
                     variant="outline" 
@@ -622,16 +351,8 @@ export default function ForecastingPage() {
                   <div className="mb-6 p-4 bg-blue-50 rounded-xl border border-blue-200">
                     <h4 className="font-semibold text-blue-800 mb-2">📖 Apa itu Forecasting?</h4>
                     <p className="text-sm text-blue-700 mb-3">
-                      Forecasting adalah teknik untuk memprediksi nilai di masa depan berdasarkan data di masa lalu. 
-                      Bayangkan seperti meramal cuaca - kita menggunakan data sebelumnya untuk menebak apa yang akan terjadi.
+                      Forecasting adalah teknik untuk memprediksi nilai di masa depan berdasarkan data di masa lalu.
                     </p>
-                    <h4 className="font-semibold text-blue-800 mb-2">🔧 Cara Menggunakan:</h4>
-                    <ol className="text-sm text-blue-700 list-decimal list-inside space-y-1">
-                      <li>Pilih <strong>"Apa yang ingin diprediksi"</strong> - misalnya waktu pengiriman atau jarak</li>
-                      <li>Pilih <strong>"Metode"</strong> - cara perhitungan prediksi (lihat bantuan di bawah)</li>
-                      <li>Pilih <strong>"Berapa lama ke depan"</strong> - berapa periode yang ingin diprediksi</li>
-                      <li>Klik <strong>"Hitung Prediksi"</strong></li>
-                    </ol>
                   </div>
                 )}
                 
@@ -717,21 +438,102 @@ export default function ForecastingPage() {
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-xl flex items-center gap-2">
-                      <LineChart className="w-6 h-6" />
-                      Grafik Prediksi - {getValueColumnDescription(valueColumn)}
+                      <BarChart3 className="w-6 h-6" />
+                      Grafik Perbandingan - {getValueColumnDescription(valueColumn)}
                     </CardTitle>
                     <CardDescription className="text-base">
-                      Perbandingan data aktual (biru) vs prediksi (hijau) - lihat trennya langsung!
+                      Bandingkan data aktual dengan hasil prediksi - lihat trennya langsung!
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <ScrollableLineChart 
-                      historical={result.historical} 
-                      forecast={result.forecast}
-                      valueColumn={valueColumn}
-                    />
+                    <div className="w-full h-[450px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                          <defs>
+                            <linearGradient id="colorActual" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                              <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.05}/>
+                            </linearGradient>
+                            <linearGradient id="colorForecast" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                              <stop offset="95%" stopColor="#10b981" stopOpacity={0.05}/>
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                          <XAxis 
+                            dataKey="name" 
+                            tick={{ fontSize: 12, fill: '#64748b' }}
+                            tickLine={{ stroke: '#cbd5e1' }}
+                            axisLine={{ stroke: '#cbd5e1' }}
+                            angle={-45}
+                            textAnchor="end"
+                            height={80}
+                          />
+                          <YAxis 
+                            tick={{ fontSize: 12, fill: '#64748b' }}
+                            tickLine={{ stroke: '#cbd5e1' }}
+                            axisLine={{ stroke: '#cbd5e1' }}
+                          />
+                          <Tooltip 
+                            contentStyle={{ 
+                              backgroundColor: '#fff', 
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '12px',
+                              boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
+                            }}
+                            formatter={(value) => [
+                              (value as number) > 0 ? formatValue(value as number) : '-',
+                              'Prediksi'
+                            ]}
+                            labelStyle={{ color: '#1e293b', fontWeight: 600 }}
+                          />
+                          <Legend 
+                            wrapperStyle={{ paddingTop: '20px' }}
+                            formatter={(value: string) => (
+                              <span style={{ color: '#334155', fontWeight: 500 }}>
+                                {value === 'Aktual' ? '📊 Data Aktual (Histor)' : '🔮 Hasil Prediksi'}
+                              </span>
+                            )}
+                          />
+                          <Area 
+                            type="monotone" 
+                            dataKey="Aktual" 
+                            stroke="#3b82f6" 
+                            strokeWidth={3}
+                            fillOpacity={1} 
+                            fill="url(#colorActual)"
+                            name="Aktual"
+                            dot={{ fill: '#3b82f6', strokeWidth: 2, r: 5 }}
+                            activeDot={{ r: 8, stroke: '#3b82f6', strokeWidth: 3, fill: '#fff' }}
+                          />
+                          <Line 
+                            type="monotone" 
+                            dataKey="Prediksi" 
+                            stroke="#10b981" 
+                            strokeWidth={3}
+                            strokeDasharray="8 4"
+                            dot={{ fill: '#10b981', strokeWidth: 2, r: 6, stroke: '#fff' }}
+                            activeDot={{ r: 8, stroke: '#10b981', strokeWidth: 3, fill: '#fff' }}
+                            name="Prediksi"
+                            connectNulls
+                          />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </div>
                     
-                    <div className="flex gap-2 mt-4">
+                    {trend && (
+                      <div className="mt-4 flex items-center justify-center gap-2 p-3 bg-slate-100 rounded-lg">
+                        <trend.icon className="w-5 h-5" style={{ color: trend.color }} />
+                        <span className="font-medium" style={{ color: trend.color }}>
+                          Tren: {trend.text}
+                        </span>
+                        <span className="text-slate-500">
+                          (Perbandingan data terakhir aktual vs prediksi)
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="flex gap-2 mt-6">
                       <Button variant="outline" onClick={() => downloadResult('csv')}>
                         <FileSpreadsheet className="w-4 h-4 mr-2" />
                         Download CSV
@@ -777,7 +579,7 @@ export default function ForecastingPage() {
                     <CardTitle className="text-lg flex items-center gap-2">
                       📊 Ringkasan Data
                     </CardTitle>
-                    <CardDescription>
+                    <CardDescription className="text-base">
                       Ringkasan statistik dari data historis dan hasil prediksi
                     </CardDescription>
                   </CardHeader>
@@ -785,8 +587,7 @@ export default function ForecastingPage() {
                     <div className="p-4 bg-slate-50 rounded-xl mb-4">
                       <p className="text-sm text-slate-600">
                         <Info className="w-4 h-4 inline mr-1" />
-                        <strong>Ringkasan Data</strong> menampilkan statistik penting yang membantu Anda memahami pola data secara keseluruhan. 
-                        Gunakan informasi ini untuk membuat keputusan bisnis yang lebih baik.
+                        <strong>Ringkasan Data</strong> menampilkan statistik penting yang membantu Anda memahami pola data secara keseluruhan.
                       </p>
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
