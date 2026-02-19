@@ -32,7 +32,8 @@ export async function GET() {
       weekendData,
       peakHourData,
       distanceData,
-      avgDelayData
+      avgDelayData,
+      restaurantData
     ] = await Promise.all([
       prisma.deliveryData.groupBy({
         by: ['orderMonth'],
@@ -87,6 +88,11 @@ export async function GET() {
       prisma.deliveryData.aggregate({
         where: { ...whereClause, delayMin: { gt: 0 } },
         _avg: { delayMin: true }
+      }),
+      prisma.deliveryData.groupBy({
+        by: ['restaurantId'],
+        where: whereClause,
+        _count: true
       })
     ])
 
@@ -146,6 +152,22 @@ export async function GET() {
     const avgDistanceKm = Math.round((distanceData._avg.distanceKm || 0) * 10) / 10
     const avgDelayMin = Math.round(avgDelayData._avg.delayMin || 0)
 
+    const restaurants = await prisma.restaurant.findMany({
+      select: { id: true, name: true }
+    })
+    const restaurantMap = new Map(restaurants.map(r => [r.id, r.name]))
+
+    // Create a map of restaurantId to count
+    const restaurantCountMap = new Map(
+      restaurantData.map((r: { restaurantId: string | null; _count: number }) => [r.restaurantId || '', r._count])
+    )
+
+    // Return ALL restaurants with their order counts (including 0)
+    const ordersByRestaurant = restaurants.map(r => ({
+      label: r.name,
+      value: restaurantCountMap.get(r.id) || 0
+    }))
+
     return NextResponse.json({
       totalOrders,
       avgDeliveryTime: avgDeliveryTimeMinutes,
@@ -166,7 +188,8 @@ export async function GET() {
         offPeak: offPeakCount
       },
       avgDistanceKm,
-      avgDelayMin
+      avgDelayMin,
+      ordersByRestaurant
     })
 
   } catch (error) {

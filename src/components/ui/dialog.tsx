@@ -97,10 +97,35 @@ function DialogDescription({ children, className, ...props }: DialogDescriptionP
   )
 }
 
+interface DialogTriggerProps extends React.HTMLAttributes<HTMLButtonElement> {
+  children?: React.ReactNode
+  asChild?: boolean
+}
+
+function DialogTrigger({ children, className, asChild, ...props }: DialogTriggerProps) {
+  if (asChild && React.isValidElement(children)) {
+    const childProps = (children as React.ReactElement<any>).props
+    return React.cloneElement(children as React.ReactElement<any>, {
+      ...props,
+      className: cn(childProps.className, className),
+    })
+  }
+  
+  return (
+    <button 
+      className={cn("", className)}
+      {...props}
+    >
+      {children}
+    </button>
+  )
+}
+
 export {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogTrigger,
 }

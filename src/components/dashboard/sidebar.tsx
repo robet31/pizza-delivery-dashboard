@@ -31,6 +31,7 @@ const managerNavigation = [
 
 const adminNavigation = [
   { name: 'Restoran', href: '/restaurants', icon: Store, roles: ['GM', 'ADMIN_PUSAT'] },
+  { name: 'Manajemen User', href: '/users', icon: Users, roles: ['GM', 'ADMIN_PUSAT'] },
 ]
 
 function getRoleLabel(role: string | undefined) {

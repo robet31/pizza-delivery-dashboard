@@ -110,7 +110,7 @@ export function LoginForm() {
   }
 
   return (
-    <div className="h-full w-full flex items-center justify-center bg-[#E5E7EB] font-sans">
+    <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100 font-sans">
       <div className="flex w-full max-w-[940px] min-h-[600px] bg-white rounded-[30px] shadow-[0_25px_50px_-12px_rgba(0,0,0,0.15)] overflow-hidden m-4">
         
         <div className="hidden md:flex flex-col w-[45%] relative">
@@ -119,15 +119,15 @@ export function LoginForm() {
             alt="Sunest Systems" 
             className="absolute inset-0 w-full h-full object-cover"
           />
-          <div className="absolute inset-0 bg-black/45" />
+          <div className="absolute inset-0 bg-gradient-to-r from-blue-900/70 to-blue-800/70" />
           
           <div className="relative z-10 flex flex-col items-center justify-center h-full text-white p-10 text-center">
             <div className="flex flex-col items-center">
                <img 
-                  src="/sunest-logo.png" 
-                  alt="Sunest Systems" 
-                  className="w-21 h-24 mb-4 object-contain rounded-2xl"
-                />
+                 src="/sunest-logo.png" 
+                 alt="Sunest Systems" 
+                 className="w-24 h-24 mb-4 object-contain bg-white/10 rounded-2xl p-2"
+               />
                <h2 className="text-2xl font-black tracking-[0.2em] uppercase leading-none">Sunest Systems</h2>
                <p className="text-[10px] font-medium tracking-[0.4em] opacity-90 mt-2">— DELIVERY MONITORING—</p>
             </div>
@@ -138,28 +138,28 @@ export function LoginForm() {
 
         <div className="w-full md:w-[55%] relative flex flex-col p-8 md:p-12 justify-center bg-white">
           
-          <div className="absolute -top-16 -right-16 w-56 h-56 bg-gradient-to-br from-[#BA2795] to-[#E4526E] rounded-full opacity-90" />
-          <div className="absolute -bottom-16 -left-16 w-48 h-48 bg-gradient-to-tr from-[#BA2795] to-[#E4526E] rounded-full opacity-90" />
+          <div className="absolute -top-16 -right-16 w-56 h-56 bg-gradient-to-br from-blue-400 to-blue-500 rounded-full opacity-80" />
+          <div className="absolute -bottom-16 -left-16 w-48 h-48 bg-gradient-to-tr from-blue-300 to-blue-400 rounded-full opacity-80" />
 
           <div className="relative z-10">
             <div className="flex gap-6 mb-4 text-xs font-black uppercase tracking-widest">
               <button 
                 type="button"
                 onClick={() => { setIsLogin(true); setError(''); setSuccess(''); setName(''); }}
-                className={`pb-1 cursor-pointer transition-colors ${isLogin ? 'text-gray-800 border-b-2 border-gray-800' : 'text-gray-400'}`}
+                className={`pb-1 cursor-pointer transition-colors ${isLogin ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-400'}`}
               >
                 Masuk
               </button>
               <button 
                 type="button"
                 onClick={() => { setIsLogin(false); setError(''); setSuccess(''); }}
-                className={`pb-1 cursor-pointer transition-colors ${!isLogin ? 'text-gray-800 border-b-2 border-gray-800' : 'text-gray-400'}`}
+                className={`pb-1 cursor-pointer transition-colors ${!isLogin ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-400'}`}
               >
                 Daftar
               </button>
             </div>
 
-            <h1 className="text-3xl font-black text-[#E4526E] mb-4 tracking-tight">
+            <h1 className="text-3xl font-black text-blue-600 mb-4 tracking-tight">
               {isLogin ? 'Masuk' : 'Daftar'}
             </h1>
 
@@ -182,7 +182,7 @@ export function LoginForm() {
               {!isLogin && (
                 <>
                   <div className="relative">
-                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#E4526E] z-10">
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-500 z-10">
                       <User size={18} />
                     </div>
                     <Input
@@ -191,7 +191,7 @@ export function LoginForm() {
                       required={!isLogin}
                       value={name}
                       onChange={(e) => setName(e.target.value)}
-                      className="pl-12 h-12 bg-[#F3F4F6] border-none rounded-xl focus-visible:ring-2 focus-visible:ring-[#BA2795]/20 placeholder:text-gray-400 text-gray-700 font-medium text-sm"
+                      className="pl-12 h-12 bg-[#F3F4F6] border-none rounded-xl focus-visible:ring-2 focus-visible:ring-blue-500/20 placeholder:text-gray-400 text-gray-700 font-medium text-sm"
                     />
                   </div>
 
@@ -202,7 +202,7 @@ export function LoginForm() {
               )}
 
               <div className="relative">
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#E4526E] z-10">
+                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-500 z-10">
                   <Mail size={18} />
                 </div>
                 <Input
@@ -211,12 +211,12 @@ export function LoginForm() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="pl-12 h-12 bg-[#F3F4F6] border-none rounded-xl focus-visible:ring-2 focus-visible:ring-[#BA2795]/20 placeholder:text-gray-400 text-gray-700 font-medium text-sm"
+                  className="pl-12 h-12 bg-[#F3F4F6] border-none rounded-xl focus-visible:ring-2 focus-visible:ring-blue-500/20 placeholder:text-gray-400 text-gray-700 font-medium text-sm"
                 />
               </div>
 
               <div className="relative">
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-[#E4526E] z-10">
+                <div className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-500 z-10">
                   <Lock size={18} />
                 </div>
                 <Input
@@ -225,7 +225,7 @@ export function LoginForm() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="pl-12 h-12 bg-[#F3F4F6] border-none rounded-xl focus-visible:ring-2 focus-visible:ring-[#BA2795]/20 placeholder:text-gray-400 text-gray-700 font-medium text-sm"
+                  className="pl-12 h-12 bg-[#F3F4F6] border-none rounded-xl focus-visible:ring-2 focus-visible:ring-blue-500/20 placeholder:text-gray-400 text-gray-700 font-medium text-sm"
                 />
               </div>
 
@@ -233,13 +233,13 @@ export function LoginForm() {
                 <Button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full h-12 bg-gradient-to-r from-[#FF8E53] to-[#BA2795] hover:brightness-110 text-white font-semibold rounded-full shadow-[0_10px_25px_rgba(186,39,149,0.3)] transition-all active:scale-95 uppercase tracking-wider"
+                  className="w-full h-12 bg-gradient-to-r from-blue-400 to-blue-600 hover:brightness-110 text-white font-semibold rounded-full shadow-[0_10px_25px_rgba(59,130,246,0.3)] transition-all active:scale-95 uppercase tracking-wider"
                 >
                   {isLoading ? <Loader2 className="animate-spin" /> : (isLogin ? 'Masuk' : 'Daftar')}
                 </Button>
                 
                 {isLogin && (
-                  <button type="button" className="mt-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest hover:text-[#BA2795] transition-colors">
+                  <button type="button" className="mt-4 text-[11px] font-bold text-gray-400 uppercase tracking-widest hover:text-blue-500 transition-colors">
                     Lupa password?
                   </button>
                 )}

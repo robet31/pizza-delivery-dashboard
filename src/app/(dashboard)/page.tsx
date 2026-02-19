@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, createContext, useContext } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import * as d3 from 'd3'
+import { createPortal } from 'react-dom'
 import { 
   ShoppingCart, 
   Clock, 
@@ -12,13 +13,55 @@ import {
   TrendingUp,
   MapPin,
   Calendar,
-  CalendarDays,
-  Zap,
   ArrowUpRight,
-  Info
+  Info,
+  Loader2
 } from 'lucide-react'
 import Link from 'next/link'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 
+// ==================== TOOLTIP CONTEXT ====================
+interface TooltipContextType {
+  showTooltip: (content: string, subtext: string, x: number, y: number) => void
+  hideTooltip: () => void
+}
+
+const TooltipContext = createContext<TooltipContextType | null>(null)
+
+function useTooltipContext() {
+  const context = useContext(TooltipContext)
+  if (!context) throw new Error('useTooltipContext must be used within TooltipProvider')
+  return context
+}
+
+function TooltipProvider({ children }: { children: React.ReactNode }) {
+  const [tooltip, setTooltip] = useState({ visible: false, content: '', subtext: '', x: 0, y: 0 })
+  const showTooltip = useCallback((content: string, subtext: string, x: number, y: number) => {
+    setTooltip({ visible: true, content, subtext, x, y })
+  }, [])
+  const hideTooltip = useCallback(() => setTooltip(prev => ({ ...prev, visible: false })), [])
+
+  return (
+    <TooltipContext.Provider value={{ showTooltip, hideTooltip }}>
+      {children}
+      {tooltip.visible && typeof document !== 'undefined' && createPortal(
+        <div className="fixed z-[99999] pointer-events-none animate-in fade-in zoom-in-95 duration-150"
+          style={{ left: tooltip.x + 12, top: tooltip.y - 12, transform: 'translate(0, -100%)' }}>
+          <div className="bg-slate-900 text-white px-4 py-3 rounded-xl shadow-2xl border border-slate-700 max-w-xs">
+            <div className="font-semibold text-xs">{tooltip.content}</div>
+            {tooltip.subtext && <div className="text-xs text-slate-400 mt-1">{tooltip.subtext}</div>}
+            <div className="absolute top-full left-4 -translate-x-1/2 -mt-1">
+              <div className="border-8 border-transparent border-t-slate-900"></div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </TooltipContext.Provider>
+  )
+}
+
+// ==================== INTERFACES ====================
 interface DashboardStats {
   totalOrders: number
   avgDeliveryTime: number
@@ -34,6 +77,7 @@ interface DashboardStats {
   peakOffPeak: { peak: number; offPeak: number }
   avgDistanceKm: number
   avgDelayMin: number
+  ordersByRestaurant: { label: string; value: number }[]
 }
 
 const COLORS = {
@@ -42,92 +86,397 @@ const COLORS = {
   accent: '#10b981',
   warning: '#f59e0b',
   danger: '#ef4444',
-  pink: '#ec4899',
-  purple: '#8b5cf6',
   cyan: '#06b6d4'
 }
 
-// Global tooltip component that follows cursor
-function Tooltip({ visible, x, y, content }: { visible: boolean; x: number; y: number; content: string }) {
-  if (!visible) return null
+const CHART_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#06b6d4', '#f97316']
+
+// ==================== INTERACTIVE BAR CHART ====================
+function InteractiveBarChart({ data, color = COLORS.primary }: { data: { label: string; value: number }[], color?: string }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const { showTooltip, hideTooltip } = useTooltipContext()
+  const hasAnimated = useRef(false)
+
+  useEffect(() => {
+    if (!containerRef.current || !data.length) return
+    const container = containerRef.current
+    const width = container.clientWidth
+    const height = container.clientHeight
+    if (width === 0 || height === 0) return
+
+    const svg = d3.select(container).append('svg').attr('width', width).attr('height', height)
+    const margin = { top: 20, right: 20, bottom: 60, left: 50 }
+    const innerWidth = width - margin.left - margin.right
+    const innerHeight = height - margin.top - margin.bottom
+    const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`)
+
+    const x = d3.scaleBand().domain(data.map(d => d.label)).range([0, innerWidth]).padding(0.3)
+    const y = d3.scaleLinear().domain([0, d3.max(data, d => d.value) || 0]).nice().range([innerHeight, 0])
+
+    g.append('g').attr('class', 'grid').call(d3.axisLeft(y).tickSize(-innerWidth).tickFormat(() => ''))
+      .selectAll('line').attr('stroke', '#e2e8f0').attr('stroke-dasharray', '2,2')
+    g.select('.grid').select('.domain').remove()
+
+    const bars = g.selectAll('.bar').data(data).enter().append('rect')
+      .attr('class', 'bar').attr('x', d => x(d.label) || 0).attr('width', x.bandwidth())
+      .attr('fill', color).attr('rx', 6).style('cursor', 'pointer')
+
+    if (!hasAnimated.current) {
+      bars.attr('y', innerHeight).attr('height', 0)
+        .transition().duration(800).delay((d, i) => i * 50)
+        .attr('y', d => y(d.value)).attr('height', d => innerHeight - y(d.value))
+      hasAnimated.current = true
+    } else {
+      bars.attr('y', d => y(d.value)).attr('height', d => innerHeight - y(d.value))
+    }
+
+    g.selectAll('.label').data(data).enter().append('text')
+      .attr('class', 'label').attr('x', d => (x(d.label) || 0) + x.bandwidth() / 2)
+      .attr('y', d => y(d.value) - 5).attr('text-anchor', 'middle')
+      .style('font-size', '11px').style('font-weight', '600').style('fill', '#475569')
+      .style('opacity', 0).text(d => d.value)
+      .transition().delay(600).duration(300).style('opacity', 1)
+
+    g.append('g').attr('transform', `translate(0,${innerHeight})`).call(d3.axisBottom(x))
+      .selectAll('text').attr('fill', '#64748b').style('font-size', '10px')
+      .attr('transform', 'rotate(-35)').style('text-anchor', 'end')
+    g.append('g').call(d3.axisLeft(y).ticks(5)).selectAll('text').attr('fill', '#64748b').style('font-size', '10px')
+
+    bars.on('mouseenter', function(event: any, d: any) {
+      d3.select(this).attr('opacity', 0.8)
+      const percentage = ((d.value / data.reduce((sum, item) => sum + item.value, 0)) * 100).toFixed(1)
+      showTooltip(`${d.label}: ${d.value}`, `${percentage}% dari total`, event.clientX, event.clientY)
+    }).on('mouseleave', function() {
+      d3.select(this).attr('opacity', 1)
+      hideTooltip()
+    })
+
+    return () => { svg.remove() }
+  }, [data, color])
+
+  return <div ref={containerRef} className="w-full h-full" />
+}
+
+// ==================== INTERACTIVE LINE CHART ====================
+function InteractiveLineChart({ data, color = COLORS.primary }: { data: { label: string; value: number }[], color?: string }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const { showTooltip, hideTooltip } = useTooltipContext()
+  const hasAnimated = useRef(false)
+
+  useEffect(() => {
+    if (!containerRef.current || !data.length) return
+    const container = containerRef.current
+    const width = container.clientWidth
+    const height = container.clientHeight
+    if (width === 0 || height === 0) return
+
+    const svg = d3.select(container).append('svg').attr('width', width).attr('height', height)
+    const margin = { top: 20, right: 30, bottom: 60, left: 50 }
+    const innerWidth = width - margin.left - margin.right
+    const innerHeight = height - margin.top - margin.bottom
+    const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`)
+
+    // Use scaleBand for better label handling with many data points
+    const x = d3.scaleBand().domain(data.map(d => d.label)).range([0, innerWidth]).padding(0.1)
+    const y = d3.scaleLinear().domain([0, d3.max(data, d => d.value) || 0]).nice().range([innerHeight, 0])
+
+    const defs = svg.append('defs')
+    const gradient = defs.append('linearGradient').attr('id', 'areaGradient').attr('x1', '0%').attr('y1', '0%').attr('x2', '0%').attr('y2', '100%')
+    gradient.append('stop').attr('offset', '0%').attr('stop-color', color).attr('stop-opacity', 0.25)
+    gradient.append('stop').attr('offset', '100%').attr('stop-color', color).attr('stop-opacity', 0)
+
+    const area = d3.area<{ label: string; value: number }>().x(d => (x(d.label) || 0) + x.bandwidth() / 2).y0(innerHeight).y1(d => y(d.value)).curve(d3.curveMonotoneX)
+    g.append('path').datum(data).attr('fill', 'url(#areaGradient)').attr('d', area)
+
+    const line = d3.line<{ label: string; value: number }>().x(d => (x(d.label) || 0) + x.bandwidth() / 2).y(d => y(d.value)).curve(d3.curveMonotoneX)
+    const path = g.append('path').datum(data).attr('fill', 'none').attr('stroke', color).attr('stroke-width', 3).attr('d', line)
+
+    if (!hasAnimated.current) {
+      const totalLength = path.node()?.getTotalLength() || 0
+      path.attr('stroke-dasharray', totalLength + ' ' + totalLength).attr('stroke-dashoffset', totalLength)
+        .transition().duration(1500).ease(d3.easeLinear).attr('stroke-dashoffset', 0)
+      hasAnimated.current = true
+    }
+
+    g.selectAll('.dot').data(data).enter().append('circle')
+      .attr('class', 'dot').attr('cx', d => (x(d.label) || 0) + x.bandwidth() / 2).attr('cy', d => y(d.value))
+      .attr('r', 0).attr('fill', color).attr('stroke', 'white').attr('stroke-width', 2).style('cursor', 'pointer')
+      .transition().delay((d, i) => i * 80 + 800).duration(300).attr('r', 5)
+
+    // Add X axis with smart label rotation based on data count
+    const xAxis = g.append('g').attr('transform', `translate(0,${innerHeight})`).call(d3.axisBottom(x))
+    
+    // Smart label handling - rotate if many labels or long labels
+    const shouldRotate = data.length > 6
+    xAxis.selectAll('text')
+      .attr('fill', '#64748b')
+      .style('font-size', shouldRotate ? '10px' : '11px')
+      .attr('transform', shouldRotate ? 'rotate(-35)' : 'none')
+      .style('text-anchor', shouldRotate ? 'end' : 'middle')
+      .each(function() {
+        const label = d3.select(this).text()
+        if (label.length > 8 && !shouldRotate) {
+          d3.select(this).text(label.substring(0, 6) + '...')
+        }
+      })
+    
+    g.append('g').call(d3.axisLeft(y).ticks(5)).selectAll('text').attr('fill', '#64748b').style('font-size', '11px')
+
+    g.selectAll('.dot').on('mouseenter', function(event: any, d: any) {
+      d3.select(this).transition().duration(150).attr('r', 8)
+      showTooltip(`${d.label}`, `${d.value} pesanan`, event.clientX, event.clientY)
+    }).on('mouseleave', function() {
+      d3.select(this).transition().duration(150).attr('r', 5)
+      hideTooltip()
+    })
+
+    return () => { svg.remove() }
+  }, [data, color])
+
+  return <div ref={containerRef} className="w-full h-full" />
+}
+
+// ==================== INTERACTIVE PIE CHART ====================
+function InteractivePieChart({ data, colors }: { data: { label: string; value: number }[], colors?: string[] }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const { showTooltip, hideTooltip } = useTooltipContext()
+  const hasAnimated = useRef(false)
+  const defaultColors = CHART_COLORS
+
+  useEffect(() => {
+    if (!containerRef.current || !data.length) return
+    const container = containerRef.current
+    const width = container.clientWidth
+    const height = container.clientHeight
+    if (width === 0 || height === 0) return
+
+    // Use full container height for consistent sizing with other charts
+    const size = Math.min(width, height) * 0.75
+    const radius = size / 2
+
+    const svg = d3.select(container).append('svg').attr('width', width).attr('height', height)
+    const g = svg.append('g').attr('transform', `translate(${width / 2},${height / 2})`)
+
+    const color = d3.scaleOrdinal<string>().domain(data.map(d => d.label)).range(colors || defaultColors)
+    const pie = d3.pie<{ label: string; value: number }>().value(d => d.value).sort(null).padAngle(0.02)
+    const arc = d3.arc<d3.PieArcDatum<{ label: string; value: number }>>().innerRadius(radius * 0.55).outerRadius(radius)
+    const arcHover = d3.arc<d3.PieArcDatum<{ label: string; value: number }>>().innerRadius(radius * 0.55).outerRadius(radius * 1.08)
+
+    const total = data.reduce((a, b) => a + b.value, 0)
+
+    const paths = g.selectAll('.arc').data(pie(data)).enter().append('path')
+      .attr('class', 'arc').attr('fill', d => color(d.data.label)).attr('stroke', 'white').attr('stroke-width', 3)
+      .style('cursor', 'pointer')
+
+    if (!hasAnimated.current) {
+      paths.transition().duration(1000).attrTween('d', function(d) {
+        const i = d3.interpolate(d.startAngle + 0.1, d.endAngle)
+        return function(t) { d.endAngle = i(t); return arc(d) || '' }
+      })
+      hasAnimated.current = true
+    } else {
+      paths.attr('d', arc)
+    }
+
+    g.append('text').attr('text-anchor', 'middle').attr('dy', '-0.2em')
+      .style('font-size', '16px').style('font-weight', 'bold').style('fill', '#334155')
+      .text(total.toLocaleString())
+    g.append('text').attr('text-anchor', 'middle').attr('dy', '1.3em')
+      .style('font-size', '11px').style('fill', '#64748b').text('Total')
+
+    paths.on('mouseenter', function(event: any, d: any) {
+      d3.select(this).transition().duration(200).attrTween('d', function() {
+        return function() { return arcHover(d) || '' }
+      })
+      const percent = ((d.data.value / total) * 100).toFixed(1)
+      showTooltip(`${d.data.label}`, `${d.data.value} order (${percent}%)`, event.clientX, event.clientY)
+    }).on('mouseleave', function(event: any, d: any) {
+      d3.select(this).transition().duration(200).attrTween('d', function() {
+        return function() { return arc(d) || '' }
+      })
+      hideTooltip()
+    })
+
+    return () => { svg.remove() }
+  }, [data, colors])
+
+  const chartColors = colors || defaultColors
+
   return (
-    <div 
-      className="fixed bg-slate-800 text-white px-3 py-2 rounded-lg text-sm z-[9999] pointer-events-none shadow-lg border border-slate-600"
-      style={{ 
-        left: x, 
-        top: y,
-        transform: 'translate(-50%, -100%)',
-        marginTop: '-10px'
-      }}
-    >
-      {content}
-      <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
+    <div className="w-full h-full flex flex-col">
+      <div ref={containerRef} className="flex-1 min-h-[200px]" />
+      <div className="flex flex-wrap justify-center gap-2 px-2">
+        {data.slice(0, 6).map((item, i) => (
+          <div key={item.label} className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-full">
+            <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: chartColors[i % chartColors.length] }} />
+            <span className="text-xs text-slate-600">{item.label}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
 
+// ==================== KPI CARD ====================
+function KPICard({ 
+  title, 
+  value, 
+  unit,
+  icon, 
+  color,
+  bgColor = 'bg-slate-50',
+  subtext,
+  isGradient = false,
+  insight
+}: { 
+  title: string
+  value: string
+  unit?: string
+  icon: React.ReactNode
+  color?: string
+  bgColor?: string
+  subtext?: string
+  isGradient?: boolean
+  insight?: string
+}) {
+  return (
+    <Card className={`h-full transition-all hover:shadow-md ${isGradient ? 'border-0' : ''}`} style={isGradient ? { background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)' } : {}}>
+      <CardContent className="p-5">
+        <div className="flex items-start justify-between">
+          <div className="flex-1">
+            <p className={`text-xs font-bold ${isGradient ? 'text-blue-200' : 'text-slate-600'}`}>{title}</p>
+            <p className={`text-3xl font-bold mt-1 ${isGradient ? 'text-white' : color || 'text-slate-800'}`}>
+              {value} 
+              {unit && <span className="text-lg font-normal ml-1"> {unit}</span>}
+            </p>
+          </div>
+          <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${isGradient ? 'bg-white/20' : bgColor}`}>
+            {icon}
+          </div>
+        </div>
+        
+        {subtext && (
+          <p className={`text-xs mt-2 ${isGradient ? 'text-blue-200' : 'text-slate-400'}`}>{subtext}</p>
+        )}
+
+        {/* Always show insight if available */}
+        {insight && (
+          <div className={`mt-3 p-3 rounded-lg text-xs ${isGradient ? 'bg-white/10 text-blue-100' : 'bg-amber-50 text-amber-800 border-l-2 border-amber-400'}`}>
+            <span className="font-semibold">💡 {insight}</span>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+// ==================== CHART CARD ====================
+function ChartCard({ title, description, explanation, insight, recommendation, children }: {
+  title: string
+  description: string
+  explanation: string
+  insight?: string
+  recommendation?: string
+  children: React.ReactNode
+}) {
+  return (
+    <Card className="h-full flex flex-col">
+      <CardHeader className="pb-2">
+        <div>
+          <CardTitle className="text-lg font-bold text-slate-800">{title}</CardTitle>
+          <CardDescription className="text-[8px] text-slate-500 mt-0.5">{description}</CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent className="flex-1 min-h-[280px]">
+        {children}
+      </CardContent>
+      
+      {/* Insight & Rekomendasi - Always visible */}
+      {(insight || recommendation) && (
+        <div className="px-4 pb-4">
+          {insight && recommendation ? (
+            <div className="bg-gradient-to-r from-amber-50 to-green-50 rounded-xl p-4 border-l-4 border-amber-400">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-lg">💡</span>
+                <h4 className="font-bold text-amber-800 text-xs uppercase tracking-wide">Insight & Rekomendasi</h4>
+              </div>
+              <p className="text-xs text-slate-700 leading-relaxed">{insight} {recommendation}</p>
+            </div>
+          ) : insight ? (
+            <div className="bg-amber-50 rounded-xl p-4 border-l-4 border-amber-500">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-lg">💡</span>
+                <h4 className="font-bold text-amber-800 text-xs uppercase tracking-wide">Insight</h4>
+              </div>
+              <p className="text-xs text-amber-900 leading-relaxed">{insight}</p>
+            </div>
+          ) : recommendation ? (
+            <div className="bg-green-50 rounded-xl p-4 border-l-4 border-green-500">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-lg">🎯</span>
+                <h4 className="font-bold text-green-800 text-xs uppercase tracking-wide">Rekomendasi</h4>
+              </div>
+              <p className="text-xs text-green-900 leading-relaxed">{recommendation}</p>
+            </div>
+          ) : null}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+// ==================== EMPTY CHART ====================
+function EmptyChart({ message = "Belum ada data" }: { message?: string }) {
+  return (
+    <div className="h-full w-full flex flex-col items-center justify-center">
+      <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mb-3">
+        <ShoppingCart className="w-8 h-8 text-slate-300" />
+      </div>
+      <p className="text-slate-400 text-xs">{message}</p>
+    </div>
+  )
+}
+
+// ==================== MAIN DASHBOARD PAGE ====================
 export default function DashboardPage() {
+  return (
+    <TooltipProvider>
+      <DashboardContent />
+    </TooltipProvider>
+  )
+}
+
+function DashboardContent() {
   const { data: session, status } = useSession()
   const router = useRouter()
   const [stats, setStats] = useState<DashboardStats | null>(null)
-  
-  // Global tooltip state
-  const [tooltip, setTooltip] = useState({
-    visible: false,
-    x: 0,
-    y: 0,
-    content: ''
-  })
-
-  const showTooltip = useCallback((e: React.MouseEvent, content: string) => {
-    setTooltip({
-      visible: true,
-      x: e.clientX,
-      y: e.clientY,
-      content
-    })
-  }, [])
-
-  const hideTooltip = useCallback(() => {
-    setTooltip(prev => ({ ...prev, visible: false }))
-  }, [])
+  const [isLoading, setIsLoading] = useState(true)
 
   const userRole = (session?.user as any)?.role || (session?.user as any)?.position || 'STAFF'
   const userName = session?.user?.name || ''
   const allowedRoles = ['MANAGER', 'GM', 'ADMIN_PUSAT']
 
   useEffect(() => {
-    if (status === 'unauthenticated') {
-      router.push('/login')
-    } else if (status === 'authenticated') {
-      if (!allowedRoles.includes(userRole)) {
-        router.push('/upload')
-      }
-    }
+    if (status === 'unauthenticated') router.push('/login')
+    else if (status === 'authenticated' && !allowedRoles.includes(userRole)) router.push('/upload')
   }, [status, userRole, router])
 
   useEffect(() => {
-    const fetchData = () => {
-      fetch('/api/dashboard/charts')
-        .then(res => res.json())
-        .then(data => setStats(data))
-        .catch(console.error)
-    }
-
-    fetchData()
+    fetch('/api/dashboard/charts')
+      .then(res => res.json())
+      .then(data => {
+        setStats(data)
+        setIsLoading(false)
+      })
+      .catch(() => setIsLoading(false))
   }, [])
 
   if (status === 'loading' || !allowedRoles.includes(userRole)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-900 via-blue-800 to-blue-700">
         <div className="text-center">
-          <div className="relative">
-            <div className="w-20 h-20 border-4 border-white/20 border-t-white rounded-full animate-spin mx-auto"></div>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <ShoppingCart className="w-8 h-8 text-white" />
-            </div>
-          </div>
-          <p className="text-white/80 mt-6 text-lg font-medium">Memuat Dashboard...</p>
+          <Loader2 className="w-12 h-12 animate-spin text-white mx-auto mb-4" />
+          <p className="text-white/80 text-lg">Memuat Dashboard...</p>
         </div>
       </div>
     )
@@ -135,13 +484,15 @@ export default function DashboardPage() {
 
   const hasData = stats && stats.totalOrders > 0
 
-  if (!hasData) {
+  if (!hasData && !isLoading) {
     return (
       <div className="min-h-screen bg-slate-50">
-      <div className="text-white p-6 md:p-8" style={{ background: 'linear-gradient(135deg, rgb(72, 148, 199) 0%, rgb(70, 147, 198) 100%)' }}>
+        <div className="text-white p-6 md:p-8" style={{ background: 'linear-gradient(135deg, rgb(72, 148, 199) 0%, rgb(70, 147, 198) 100%)' }}>
           <div className="max-w-7xl mx-auto">
             <h1 className="text-2xl md:text-3xl font-bold">Dashboard</h1>
-            <p className="mt-2 text-sm md:text-base" style={{ color: 'rgba(255,255,255,0.8)' }}>Selamat datang, <span className="font-semibold text-white">{userName}</span></p>
+            <p className="mt-2 text-xs md:text-base" style={{ color: 'rgba(255,255,255,0.8)' }}>
+              Selamat datang, <span className="font-semibold text-white">{userName}</span>
+            </p>
           </div>
         </div>
         <div className="max-w-7xl mx-auto px-4 md:px-6 py-12">
@@ -150,13 +501,8 @@ export default function DashboardPage() {
               <ShoppingCart className="w-12 h-12 text-blue-500" />
             </div>
             <h2 className="text-2xl font-bold text-slate-800 mb-3">Belum Ada Data</h2>
-            <p className="text-slate-500 mb-8 max-w-md mx-auto">
-              Data delivery belum tersedia. Silakan upload data order terlebih dahulu untuk melihat dashboard analytics.
-            </p>
-            <Link 
-              href="/upload"
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-            >
+            <p className="text-slate-500 mb-8 max-w-md mx-auto">Data delivery belum tersedia. Silakan upload data order terlebih dahulu.</p>
+            <Link href="/upload" className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors">
               Upload Data
               <ArrowUpRight className="w-5 h-5" />
             </Link>
@@ -168,11 +514,8 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Global Tooltip */}
-      <Tooltip {...tooltip} />
-      
       {/* Header */}
-        <div className="text-white p-6 md:p-8" style={{ background: 'linear-gradient(135deg, rgb(72, 148, 199) 0%, rgb(70, 147, 198) 100%)' }}>
+      <div className="text-white p-6 md:p-8" style={{ background: 'linear-gradient(135deg, rgb(72, 148, 199) 0%, rgb(70, 147, 198) 100%)' }}>
         <div className="max-w-7xl mx-auto">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
@@ -182,9 +525,11 @@ export default function DashboardPage() {
                 </div>
                 Dashboard
               </h1>
-              <p className="mt-2 text-sm md:text-base" style={{ color: 'rgba(255,255,255,0.8)' }}>Selamat datang, <span className="font-semibold text-white">{userName}</span></p>
+              <p className="mt-2 text-xs md:text-base" style={{ color: 'rgba(255,255,255,0.8)' }}>
+                Selamat datang, <span className="font-semibold text-white">{userName}</span>
+              </p>
             </div>
-            <div className="flex items-center gap-2 text-sm bg-white/20 px-4 py-2 rounded-full" style={{ color: 'white' }}>
+            <div className="flex items-center gap-2 text-xs bg-white/20 px-4 py-2 rounded-full" style={{ color: 'white' }}>
               <Calendar className="w-4 h-4" />
               <span>{new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span>
             </div>
@@ -193,645 +538,142 @@ export default function DashboardPage() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 md:px-6 py-6">
-        {/* Bento Grid Layout */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-4 md:gap-6">
-          
-          {/* Main KPI Cards - Row 1 */}
-          <div className="lg:col-span-3">
-            <KPICard 
-              title="Total Pesanan" 
-              value={stats?.totalOrders?.toLocaleString() || '0'} 
-              unit=""
-              icon={<ShoppingCart className="w-6 h-6" />}
-              color="#3b82f6"
-              bgColor="from-blue-600 to-blue-700"
-              subtext="Performa bisnis stabil"
-            />
-          </div>
+        {/* KPI Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <KPICard 
+            title="Total Pesanan" 
+            value={stats?.totalOrders?.toLocaleString() || '0'} 
+            icon={<ShoppingCart className="w-6 h-6 text-white" />}
+            isGradient={true}
+            subtext="Total order dalam periode"
+            insight={`Rata-rata ${Math.round((stats?.totalOrders || 0) / 30)} order/hari. Dihitung dari semua pesanan yang masuk ke sistem.`}
+          />
 
-          <div className="lg:col-span-3">
-            <KPICard 
-              title="Tepat Waktu" 
-              value={`${stats?.onTimeRate || 0}`} 
-              unit="%"
-              icon={<CheckCircle className="w-6 h-6 text-green-600" />}
-              color="text-green-600"
-              bgColor="bg-green-50"
-              progress={stats?.onTimeRate || 0}
-              subtext={`${stats?.delayedOrders || 0} dari ${stats?.totalOrders || 0} order`}
-            />
-          </div>
+          <KPICard 
+            title="Tepat Waktu" 
+            value={`${(stats?.onTimeRate || 0).toFixed(1)}`} 
+            unit="%"
+            icon={<CheckCircle className="w-6 h-6 text-green-600" />}
+            color="text-green-600"
+            bgColor="bg-green-50"
+            subtext={`${stats?.delayedOrders || 0} pesanan terlambat`}
+            insight={`On-time rate menunjukkan persentase pesanan yang dikirim tepat waktu. Target industri adalah >85%. Rate saat ini ${(stats?.onTimeRate || 0) >= 85 ? 'sudah baik' : 'perlu ditingkatkan'}.`}
+          />
 
-          <div className="lg:col-span-3">
-            <KPICard 
-              title="Terlambat" 
-              value={String(stats?.delayedOrders || 0)} 
-              unit=""
-              icon={<AlertTriangle className="w-6 h-6 text-red-600" />}
-              color="text-red-600"
-              bgColor="bg-red-50"
-              subtext={`${((stats?.delayedOrders || 0) / (stats?.totalOrders || 1) * 100).toFixed(1)}% dari total`}
-            />
-          </div>
+          <KPICard 
+            title="Avg. Waktu Kirim" 
+            value={(stats?.avgDeliveryTime || 0).toFixed(1)} 
+            unit="menit"
+            icon={<Clock className="w-6 h-6 text-purple-600" />}
+            color="text-purple-600"
+            bgColor="bg-purple-50"
+            subtext="Rata-rata durasi pengiriman"
+            insight={`Waktu rata-rata dari order dibuat hingga pizza sampai di pelanggan. Standar industri adalah 30-45 menit.`}
+          />
 
-          <div className="lg:col-span-3">
-            <KPICard 
-              title="Avg. Waktu" 
-              value={String(stats?.avgDeliveryTime || 0)} 
-              unit="menit"
-              icon={<Clock className="w-6 h-6 text-purple-600" />}
-              color="text-purple-600"
-              bgColor="bg-purple-50"
-              subtext="Rata-rata per pengiriman"
-            />
-          </div>
+          <KPICard 
+            title="Avg. Jarak" 
+            value={(stats?.avgDistanceKm || 0).toFixed(1)} 
+            unit="km"
+            icon={<MapPin className="w-6 h-6 text-amber-600" />}
+            color="text-amber-600"
+            bgColor="bg-amber-50"
+            subtext="Jarak rata-rata pengiriman"
+            insight={`Rata-rata jarak tempuh pengiriman. Jarak mempengaruhi waktu delivery dan biaya operasional.`}
+          />
+        </div>
 
-          {/* Row 2: Distribusi Pizza Size | Tren Pesanan */}
-          {/* Distribusi Pizza Size */}
-          <div className="lg:col-span-4">
-            <PizzaSizeCard stats={stats} />
-          </div>
+        {/* Charts Grid - General Overview */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <ChartCard
+            title="Tren Pesanan"
+            description="Melihat tren penjualan pizza dari bulan ke bulan"
+            explanation="Grafik garis ini menunjukkan jumlah pesanan pizza dari waktu ke waktu. Garis yang naik berarti penjualan bagus, garis turun berarti butuh perhatian. Gunakan ini untuk melihat pola musiman dan merencanakan strategi bisnis."
+            insight={`Total pesanan ${stats?.totalOrders?.toLocaleString()} dengan rata-rata ${Math.round((stats?.totalOrders || 0) / 12)} pesanan per bulan.`}
+            recommendation="Gunakan tren ini untuk merencanakan inventory dan staffing. Jika tren naik, pertimbangkan menambah sumber daya."
+          >
+            {stats?.deliveryPerformance?.length ? (
+              <InteractiveLineChart data={stats.deliveryPerformance} color={COLORS.primary} />
+            ) : <EmptyChart />}
+          </ChartCard>
 
-          {/* Tren Pesanan - Full Width */}
-          <div className="lg:col-span-8">
-            <ChartSection 
-              title="Tren Pesanan" 
-              description="Pertumbuhan pesanan per bulan"
-              explanation="Grafik ini menunjukkan tren jumlah pesanan dari waktu ke waktu. Naik turunnya garis menunjukkan pola musiman atau perubahan permintaan pelanggan."
-              showTooltip={showTooltip}
-              hideTooltip={hideTooltip}
-            >
-              {stats?.deliveryPerformance && stats.deliveryPerformance.length > 0 ? (
-                <AreaChart data={stats.deliveryPerformance} showTooltip={showTooltip} hideTooltip={hideTooltip} />
-              ) : <EmptyChart />}
-            </ChartSection>
-          </div>
+          <ChartCard
+            title="Pesanan per Restauran"
+            description="Membandingkan kinerja antar 5 restoran pizza"
+            explanation="Grafik batang ini membandingkan jumlah pesanan antar 5 restoran pizza. Bar yang lebih tinggi berarti restoran tersebut lebih banyak mendapat pesanan. Berguna untuk evaluasi kinerja masing-masing unit."
+            insight={`Restoran dengan pesanan tertinggi memiliki ${Math.max(...(stats?.ordersByRestaurant?.map(r => r.value) || [0]))} pesanan.`}
+            recommendation="Berikan resources lebih ke restoran dengan volume tinggi dan evaluasi restoran dengan performa rendah."
+          >
+            {stats?.ordersByRestaurant?.length ? (
+              <InteractiveBarChart data={stats.ordersByRestaurant} color={COLORS.primary} />
+            ) : <EmptyChart />}
+          </ChartCard>
+        </div>
 
-          {/* Row 3: Secondary Stats - Avg Jarak, Jam Sibuk, Weekend, Avg Delay */}
-          <div className="lg:col-span-3">
-            <KPICard 
-              title="Avg. Jarak" 
-              value={String(stats?.avgDistanceKm || 0)} 
-              unit="km"
-              icon={<MapPin className="w-6 h-6 text-amber-600" />}
-              color="text-amber-600"
-              bgColor="bg-amber-50"
-              subtext="Jarak rata-rata pengiriman"
-            />
-          </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
+          <ChartCard
+            title="Distribusi Ukuran"
+            description="Mengetahui ukuran pizza favorit pelanggan"
+            explanation="Grafik donat ini menunjukkan preferensi pelanggan dalam memilih ukuran pizza (Small, Medium, Large, XL). Bagian yang lebih besar berarti ukuran tersebut lebih banyak dipesan. Penting untuk menentukan stock bahan baku."
+            insight={`Ukuran paling populer: ${stats?.pizzaSizes?.sort((a, b) => b.value - a.value)[0]?.label || '-'} dengan ${stats?.pizzaSizes?.sort((a, b) => b.value - a.value)[0]?.value || 0} pesanan.`}
+            recommendation="Pastikan stock bahan untuk ukuran populer selalu tersedia. Pertimbangkan promo untuk ukuran yang kurang populer."
+          >
+            {stats?.pizzaSizes?.length ? (
+              <InteractivePieChart data={stats.pizzaSizes} />
+            ) : <EmptyChart />}
+          </ChartCard>
 
-          <div className="lg:col-span-3">
-            <KPICard 
-              title="Jam Sibuk" 
-              value={String(stats?.peakOffPeak?.peak || 0)} 
-              unit=""
-              icon={<Zap className="w-6 h-6 text-cyan-600" />}
-              color="text-cyan-600"
-              bgColor="bg-cyan-50"
-              subtext="Order pada jam sibuk"
-            />
-          </div>
+          <ChartCard
+            title="Jenis Pizza"
+            description="Mengetahui rasa pizza favorit pelanggan"
+            explanation="Grafik donat ini menampilkan jenis/varian pizza yang paling banyak dipesan. Dari sini bisa diketahui rasa pizza apa yang paling digemari pelanggan."
+            insight={`Jenis pizza terlaris: ${stats?.pizzaTypes?.sort((a, b) => b.value - a.value)[0]?.label || '-'}.`}
+            recommendation="Fokuskan marketing pada jenis populer dan coba variasi baru untuk jenis yang kurang laku."
+          >
+            {stats?.pizzaTypes?.length ? (
+              <InteractivePieChart data={stats.pizzaTypes} colors={[COLORS.secondary, '#7c3aed', '#059669', '#dc2626', '#f59e0b', '#06b6d4']} />
+            ) : <EmptyChart />}
+          </ChartCard>
 
-          <div className="lg:col-span-3">
-            <KPICard 
-              title="Weekend" 
-              value={String(stats?.weekendVsWeekday?.weekend || 0)} 
-              unit=""
-              icon={<CalendarDays className="w-6 h-6 text-purple-600" />}
-              color="text-purple-600"
-              bgColor="bg-purple-50"
-              subtext="Order hari libur"
-            />
-          </div>
+          <ChartCard
+            title="Metode Pembayaran"
+            description="Preferensi cara bayar pelanggan"
+            explanation="Grafik donat ini menunjukkan bagaimana pelanggan membayar - apakah pakai Cash (tunai), Card (kartu), atau E-Wallet. Penting untuk memastikan sistem pembayaran sesuai keinginan pelanggan."
+            insight={`Metode paling populer: ${stats?.paymentMethods?.sort((a, b) => b.value - a.value)[0]?.label || '-'} (${((stats?.paymentMethods?.sort((a, b) => b.value - a.value)[0]?.value || 0) / (stats?.totalOrders || 1) * 100).toFixed(1)}%).`}
+            recommendation="Pastikan sistem payment method populer selalu berjalan lancar. Pertimbangkan insentif untuk metode yang ingin dipromosikan."
+          >
+            {stats?.paymentMethods?.length ? (
+              <InteractivePieChart data={stats.paymentMethods} colors={[COLORS.accent, COLORS.primary, COLORS.warning, COLORS.danger, COLORS.cyan]} />
+            ) : <EmptyChart />}
+          </ChartCard>
+        </div>
 
-          <div className="lg:col-span-3">
-            <KPICard 
-              title="Avg. Delay" 
-              value={String(stats?.avgDelayMin || 0)} 
-              unit="min"
-              icon={<AlertTriangle className="w-6 h-6 text-rose-600" />}
-              color="text-rose-600"
-              bgColor="bg-rose-50"
-              subtext="Rata-rata keterlambatan"
-            />
-          </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+          <ChartCard
+            title="Jam Sibuk"
+            description="Jam dengan volume pesanan tertinggi"
+            explanation="Grafik batang ini menampilkan jam-jam dengan volume pesanan tertinggi. Berguna untuk mengatur jadwal staff dan driver agar bisa melayani lebih banyak pelanggan saat sibuk."
+            insight={`Jam sibuk: ${stats?.peakHours?.sort((a, b) => b.value - a.value).slice(0, 3).map(h => h.label).join(', ') || '-'}`}
+            recommendation="Tingkatkan staffing pada jam sibuk (11:00-13:00 dan 18:00-21:00) untuk mengurangi waktu tunggu."
+          >
+            {stats?.peakHours?.length ? (
+              <InteractiveBarChart data={stats.peakHours} color={COLORS.warning} />
+            ) : <EmptyChart />}
+          </ChartCard>
 
-          {/* Row 3: Jam Sibuk & Dampak Lalu Lintas */}
-          <div className="lg:col-span-6">
-            <ChartSection 
-              title="Jam Sibuk" 
-              description="Jam dengan pesanan tertinggi"
-              explanation="Grafik batang menunjukkan jam-jam dengan volume pesanan tertinggi. Identifikasi jam sibuk untuk menambah driver."
-              showTooltip={showTooltip}
-              hideTooltip={hideTooltip}
-            >
-              {stats?.peakHours && stats.peakHours.length > 0 ? (
-                <BarChart data={stats.peakHours} showTooltip={showTooltip} hideTooltip={hideTooltip} />
-              ) : <EmptyChart />}
-            </ChartSection>
-          </div>
-
-          <div className="lg:col-span-6">
-            <ChartSection 
-              title="Dampak Lalu Lintas" 
-              description="Pengiriman berdasarkan kondisi lalu lintas"
-              explanation="Membandingkan jumlah pengiriman pada kondisi lalu lintas. Data ini membantu estimasi waktu pengiriman."
-              showTooltip={showTooltip}
-              hideTooltip={hideTooltip}
-            >
-              {stats?.trafficImpact && stats.trafficImpact.length > 0 ? (
-                <HBarChart data={stats.trafficImpact} showTooltip={showTooltip} hideTooltip={hideTooltip} />
-              ) : <EmptyChart />}
-            </ChartSection>
-          </div>
-
-          {/* Row 4: Weekend vs Weekday, Jenis Pizza & Payment */}
-          <div className="lg:col-span-4">
-            <ChartSection 
-              title="Weekend vs Weekday" 
-              description="Distribusi pesanan hari kerja vs libur"
-              explanation="Membandingkan jumlah pesanan pada hari kerja dengan akhir pekan. Data ini membantu perencanaan staffing."
-              showTooltip={showTooltip}
-              hideTooltip={hideTooltip}
-            >
-              {stats?.weekendVsWeekday && (stats.weekendVsWeekday.weekend > 0 || stats.weekendVsWeekday.weekday > 0) ? (
-                <PieChart 
-                  data={[
-                    { label: 'Weekend', value: stats.weekendVsWeekday.weekend },
-                    { label: 'Weekday', value: stats.weekendVsWeekday.weekday }
-                  ]} 
-                  colors={['#8b5cf6', '#3b82f6']}
-                  showTooltip={showTooltip}
-                  hideTooltip={hideTooltip}
-                />
-              ) : <EmptyChart />}
-            </ChartSection>
-          </div>
-
-          {/* Jenis Pizza */}
-          <div className="lg:col-span-4">
-            <ChartSection 
-              title="Jenis Pizza" 
-              description="Distribusi menu favorit"
-              explanation="Menampilkan popularitas berbagai jenis pizza. Data ini membantu memahami preferensi pelanggan dan mengoptimalkan strategi marketing."
-              showTooltip={showTooltip}
-              hideTooltip={hideTooltip}
-            >
-              {stats?.pizzaTypes && stats.pizzaTypes.length > 0 ? (
-                <BarChart data={stats.pizzaTypes} color="#8b5cf6" showTooltip={showTooltip} hideTooltip={hideTooltip} />
-              ) : <EmptyChart />}
-            </ChartSection>
-          </div>
-
-          <div className="lg:col-span-4">
-            <ChartSection 
-              title="Metode Pembayaran" 
-              description="Distribusi metode pembayaran"
-              explanation="Menunjukkan preferensi pelanggan dalam metode pembayaran. Pastikan metode populer selalu tersedia."
-              showTooltip={showTooltip}
-              hideTooltip={hideTooltip}
-            >
-              {stats?.paymentMethods && stats.paymentMethods.length > 0 ? (
-                <PieChart 
-                  data={stats.paymentMethods} 
-                  colors={['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444']}
-                  showTooltip={showTooltip}
-                  hideTooltip={hideTooltip}
-                />
-              ) : <EmptyChart />}
-            </ChartSection>
-          </div>
-
+          <ChartCard
+            title="Dampak Lalu Lintas"
+            description="Pengaruh kondisi lalu lintas terhadap pengiriman"
+            explanation="Grafik batang ini membandingkan jumlah pesanan berdasarkan kondisi lalu lintas (Low, Medium, High). Berguna untuk memahami bagaimana lalu lintas mempengaruhi waktu delivery dan keberhasilan pengiriman."
+            insight={`Volume tertinggi pada lalu lintas: ${stats?.trafficImpact?.sort((a, b) => b.value - a.value)[0]?.label || '-'}.`}
+            recommendation="Gunakan data ini untuk estimasi waktu pengiriman yang lebih akurat dan informasikan ke pelanggan saat kondisi lalu lintas padat."
+          >
+            {stats?.trafficImpact?.length ? (
+              <InteractiveBarChart data={stats.trafficImpact} color={COLORS.accent} />
+            ) : <EmptyChart />}
+          </ChartCard>
         </div>
       </div>
     </div>
   )
-}
-
-function KPICard({ 
-  title, 
-  value, 
-  unit,
-  icon, 
-  color,
-  bgColor = 'bg-slate-50',
-  subtext,
-  progress,
-  isGradient = false
-}: { 
-  title: string
-  value: string
-  unit?: string
-  icon: React.ReactNode
-  color?: string
-  bgColor?: string
-  subtext?: string
-  progress?: number
-  isGradient?: boolean
-}) {
-  return (
-    <div 
-      className={`rounded-2xl p-6 shadow-sm border h-full flex flex-col justify-between ${isGradient ? '' : 'bg-white border-slate-200'}`}
-      style={isGradient ? { background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)' } : {}}
-    >
-      <div className="flex items-start justify-between">
-        <div>
-          <p className={`text-sm mb-1 ${isGradient ? 'text-blue-200' : 'text-slate-500'}`}>{title}</p>
-          <p className={`text-4xl font-bold ${isGradient ? 'text-white' : color || 'text-slate-800'}`}>
-            {value} 
-            {unit && <span className={`text-lg font-normal ${isGradient ? 'text-blue-200' : 'text-slate-400'}`}> {unit}</span>}
-          </p>
-        </div>
-        <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${isGradient ? 'bg-white/20' : bgColor}`}>
-          {icon}
-        </div>
-      </div>
-      
-      {progress !== undefined && !isGradient && (
-        <div className="mt-4">
-          <div className="w-full bg-slate-100 rounded-full h-2">
-            <div className="bg-green-500 h-2 rounded-full transition-all" style={{width: `${progress}%`}}></div>
-          </div>
-        </div>
-      )}
-      
-      {subtext && (
-        <p className={`text-sm mt-4 ${isGradient ? 'text-blue-200' : 'text-slate-400'}`}>
-          {subtext}
-        </p>
-      )}
-    </div>
-  )
-}
-
-function ChartSection({ 
-  title, 
-  description, 
-  explanation, 
-  children,
-  showTooltip,
-  hideTooltip
-}: { 
-  title: string
-  description: string
-  explanation: string
-  children: React.ReactNode
-  showTooltip: (e: React.MouseEvent, content: string) => void
-  hideTooltip: () => void
-}) {
-  const [showExplanation, setShowExplanation] = useState(false)
-
-  return (
-    <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 h-full">
-      <div className="flex items-start justify-between mb-3">
-        <div>
-          <h3 className="font-bold text-slate-800">{title}</h3>
-          <p className="text-slate-500 text-xs">{description}</p>
-        </div>
-        <button 
-          onClick={() => setShowExplanation(!showExplanation)}
-          className="p-1.5 hover:bg-slate-100 rounded-full transition-colors"
-          title="Lihat penjelasan"
-        >
-          <Info className="w-4 h-4 text-slate-400" />
-        </button>
-      </div>
-      
-      <div className="h-64">
-        {children}
-      </div>
-
-      {showExplanation && (
-        <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-100">
-          <p className="text-xs text-blue-800">{explanation}</p>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function EmptyChart() {
-  return (
-    <div className="h-full w-full flex flex-col items-center justify-center">
-      <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mb-2">
-        <ShoppingCart className="w-6 h-6 text-slate-400" />
-      </div>
-      <p className="text-slate-400 text-sm">Belum ada data</p>
-    </div>
-  )
-}
-
-function PizzaSizeCard({ stats }: { stats: DashboardStats | null }) {
-  const [showExplanation, setShowExplanation] = useState(false)
-  const total = stats?.pizzaSizes?.reduce((sum, item) => sum + item.value, 0) || 0
-
-  return (
-    <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 h-full flex flex-col">
-      <div className="flex items-start justify-between mb-3">
-        <div>
-          <h3 className="font-bold text-slate-800">Distribusi Pizza Size</h3>
-          <p className="text-slate-500 text-xs">Jumlah pesanan berdasarkan ukuran</p>
-        </div>
-        <button 
-          onClick={() => setShowExplanation(!showExplanation)}
-          className="p-1.5 hover:bg-slate-100 rounded-full transition-colors"
-          title="Lihat penjelasan"
-        >
-          <Info className="w-4 h-4 text-slate-400" />
-        </button>
-      </div>
-      
-      <div className="flex-1 overflow-y-auto">
-        {stats?.pizzaSizes && stats.pizzaSizes.length > 0 ? (
-          <div className="space-y-3">
-            {stats.pizzaSizes.map((size, index) => {
-              const percentage = total > 0 ? ((size.value / total) * 100).toFixed(1) : '0'
-              return (
-                <div key={size.label} className="relative">
-                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold shadow-sm"
-                        style={{backgroundColor: ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b'][index % 4]}}
-                      >
-                        {size.label[0]}
-                      </div>
-                      <div>
-                        <span className="font-semibold text-slate-800 block">{size.label}</span>
-                        <span className="text-xs text-slate-500">{percentage}% dari total</span>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <span className="font-bold text-slate-800 text-lg">{size.value}</span>
-                      <span className="text-xs text-slate-400 ml-1 block">order</span>
-                    </div>
-                  </div>
-                  {/* Progress bar */}
-                  <div className="mt-1 h-1 bg-slate-100 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full rounded-full transition-all duration-500"
-                      style={{
-                        width: `${percentage}%`,
-                        backgroundColor: ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b'][index % 4]
-                      }}
-                    />
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        ) : (
-          <div className="h-full flex flex-col items-center justify-center">
-            <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mb-2">
-              <ShoppingCart className="w-6 h-6 text-slate-400" />
-            </div>
-            <p className="text-slate-400 text-sm">Belum ada data</p>
-          </div>
-        )}
-      </div>
-
-      {showExplanation && (
-        <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-100">
-          <p className="text-xs text-blue-800">
-            Menampilkan jumlah pesanan untuk setiap ukuran pizza. Persentase dihitung dari total {total} order. 
-            Data ini membantu menentukan stok bahan baku yang paling banyak dibutuhkan.
-          </p>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// Chart Components with proper tooltip handling
-function AreaChart({ data, showTooltip, hideTooltip }: { data: { label: string, value: number }[], showTooltip: (e: React.MouseEvent, content: string) => void, hideTooltip: () => void }) {
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!containerRef.current || !data.length) return
-
-    const container = containerRef.current
-    const width = container.clientWidth
-    const height = container.clientHeight
-    
-    if (width === 0 || height === 0) return
-
-    const svg = d3.select(container).append('svg')
-      .attr('width', width)
-      .attr('height', height)
-
-    const margin = { top: 10, right: 30, bottom: 40, left: 40 }
-    const innerWidth = width - margin.left - margin.right
-    const innerHeight = height - margin.top - margin.bottom
-
-    const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`)
-
-    const x = d3.scalePoint().domain(data.map(d => d.label)).range([0, innerWidth]).padding(0.5)
-    const y = d3.scaleLinear().domain([0, d3.max(data, d => d.value) || 0]).nice().range([innerHeight, 0])
-
-    const defs = svg.append('defs')
-    const gradient = defs.append('linearGradient')
-      .attr('id', 'areaGradient')
-      .attr('x1', '0%').attr('y1', '0%')
-      .attr('x2', '0%').attr('y2', '100%')
-    gradient.append('stop').attr('offset', '0%').attr('stop-color', COLORS.primary).attr('stop-opacity', 0.3)
-    gradient.append('stop').attr('offset', '100%').attr('stop-color', COLORS.primary).attr('stop-opacity', 0)
-
-    const area = d3.area<{ label: string, value: number }>()
-      .x(d => x(d.label) || 0).y0(innerHeight).y1(d => y(d.value)).curve(d3.curveMonotoneX)
-    g.append('path').datum(data).attr('fill', 'url(#areaGradient)').attr('d', area)
-
-    const line = d3.line<{ label: string, value: number }>()
-      .x(d => x(d.label) || 0).y(d => y(d.value)).curve(d3.curveMonotoneX)
-    g.append('path').datum(data).attr('fill', 'none').attr('stroke', COLORS.primary).attr('stroke-width', 3).attr('d', line)
-
-    g.selectAll('.dot').data(data).enter().append('circle')
-      .attr('cx', d => x(d.label) || 0).attr('cy', d => y(d.value)).attr('r', 5)
-      .attr('fill', COLORS.primary).attr('stroke', 'white').attr('stroke-width', 2)
-      .style('cursor', 'pointer')
-      .on('mousemove', function(event, d) {
-        d3.select(this).attr('r', 7)
-        showTooltip(event as any, `${d.label}: ${d.value} pesanan`)
-      })
-      .on('mouseout', function() {
-        d3.select(this).attr('r', 5)
-        hideTooltip()
-      })
-
-    g.append('g').attr('transform', `translate(0,${innerHeight})`).call(d3.axisBottom(x))
-      .selectAll('text').attr('fill', '#64748b').style('font-size', '11px')
-    g.append('g').call(d3.axisLeft(y).ticks(5))
-      .selectAll('text').attr('fill', '#64748b').style('font-size', '11px')
-
-    return () => { svg.remove() }
-  }, [data, showTooltip, hideTooltip])
-
-  return <div ref={containerRef} className="w-full h-full" />
-}
-
-function BarChart({ data, color = COLORS.secondary, showTooltip, hideTooltip }: { data: { label: string, value: number }[], color?: string, showTooltip: (e: React.MouseEvent, content: string) => void, hideTooltip: () => void }) {
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!containerRef.current || !data.length) return
-
-    const container = containerRef.current
-    const width = container.clientWidth
-    const height = container.clientHeight
-    
-    if (width === 0 || height === 0) return
-
-    const svg = d3.select(container).append('svg')
-      .attr('width', width)
-      .attr('height', height)
-
-    const margin = { top: 10, right: 10, bottom: 60, left: 40 }
-    const innerWidth = width - margin.left - margin.right
-    const innerHeight = height - margin.top - margin.bottom
-
-    const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`)
-
-    const x = d3.scaleBand().domain(data.map(d => d.label)).range([0, innerWidth]).padding(0.4)
-    const y = d3.scaleLinear().domain([0, d3.max(data, d => d.value) || 0]).nice().range([innerHeight, 0])
-
-    g.selectAll('.bar').data(data).enter().append('rect')
-      .attr('x', d => x(d.label) || 0).attr('y', d => y(d.value))
-      .attr('width', x.bandwidth()).attr('height', d => innerHeight - y(d.value))
-      .attr('fill', color).attr('rx', 4)
-      .style('cursor', 'pointer')
-      .on('mousemove', function(event, d) {
-        d3.select(this).attr('opacity', 0.8)
-        showTooltip(event as any, `${d.label}: ${d.value} order`)
-      })
-      .on('mouseout', function() {
-        d3.select(this).attr('opacity', 1)
-        hideTooltip()
-      })
-
-    g.append('g').attr('transform', `translate(0,${innerHeight})`).call(d3.axisBottom(x))
-      .selectAll('text').attr('fill', '#64748b').style('font-size', '10px')
-      .attr('transform', 'rotate(-45)')
-      .style('text-anchor', 'end')
-      .attr('dx', '-0.5em')
-      .attr('dy', '0.15em')
-
-    g.append('g').call(d3.axisLeft(y).ticks(5))
-      .selectAll('text').attr('fill', '#64748b').style('font-size', '10px')
-
-    return () => { svg.remove() }
-  }, [data, color, showTooltip, hideTooltip])
-
-  return <div ref={containerRef} className="w-full h-full" />
-}
-
-function PieChart({ data, colors, showTooltip, hideTooltip }: { data: { label: string, value: number }[], colors?: string[], showTooltip: (e: React.MouseEvent, content: string) => void, hideTooltip: () => void }) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const defaultColors = ['#3b82f6', '#8b5cf6', '#10b981', '#ef4444', '#f59e0b', '#06b6d4']
-
-  useEffect(() => {
-    if (!containerRef.current || !data.length) return
-
-    const container = containerRef.current
-    const width = container.clientWidth
-    const height = container.clientHeight - 40 // space for legend
-    
-    if (width === 0 || height === 0) return
-
-    const size = Math.min(width, height) * 0.7
-    const radius = size / 2
-
-    const svg = d3.select(container).append('svg')
-      .attr('width', width)
-      .attr('height', height)
-
-    const g = svg.append('g').attr('transform', `translate(${width / 2},${height / 2})`)
-
-    const color = d3.scaleOrdinal<string>().domain(data.map(d => d.label)).range(colors || defaultColors)
-    const pie = d3.pie<{ label: string, value: number }>().value(d => d.value).sort(null)
-    const arc = d3.arc<d3.PieArcDatum<{ label: string, value: number }>>().innerRadius(radius * 0.5).outerRadius(radius)
-
-    const total = data.reduce((a, b) => a + b.value, 0)
-
-    g.selectAll('.arc').data(pie(data)).enter().append('path')
-      .attr('d', arc).attr('fill', d => color(d.data.label)).attr('stroke', 'white').attr('stroke-width', 2)
-      .style('cursor', 'pointer')
-      .on('mousemove', function(event, d) {
-        d3.select(this).transition().duration(200).attr('transform', 'scale(1.05)')
-        const percent = ((d.data.value / total) * 100).toFixed(1)
-        showTooltip(event as any, `${d.data.label}: ${d.data.value} (${percent}%)`)
-      })
-      .on('mouseout', function() {
-        d3.select(this).transition().duration(200).attr('transform', 'scale(1)')
-        hideTooltip()
-      })
-
-    return () => { svg.remove() }
-  }, [data, colors, showTooltip, hideTooltip])
-
-  const chartColors = colors || defaultColors
-
-  return (
-    <div className="w-full h-full flex flex-col">
-      <div ref={containerRef} className="flex-1" />
-      <div className="flex flex-wrap justify-center gap-2 mt-2">
-        {data.map((item, i) => (
-          <div key={item.label} className="flex items-center gap-1 bg-slate-50 px-2 py-1 rounded-full">
-            <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: chartColors[i % chartColors.length] }} />
-            <span className="text-xs text-slate-600">{item.label}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function HBarChart({ data, showTooltip, hideTooltip }: { data: { label: string, value: number }[], showTooltip: (e: React.MouseEvent, content: string) => void, hideTooltip: () => void }) {
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!containerRef.current || !data.length) return
-
-    const container = containerRef.current
-    const width = container.clientWidth
-    const height = container.clientHeight
-    
-    if (width === 0 || height === 0) return
-
-    const svg = d3.select(container).append('svg')
-      .attr('width', width)
-      .attr('height', height)
-
-    const margin = { top: 10, right: 50, bottom: 10, left: 80 }
-    const innerWidth = width - margin.left - margin.right
-    const innerHeight = height - margin.top - margin.bottom
-
-    const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`)
-
-    const x = d3.scaleLinear().domain([0, d3.max(data, d => d.value) || 0]).range([0, innerWidth])
-    const y = d3.scaleBand().domain(data.map(d => d.label)).range([0, innerHeight]).padding(0.3)
-
-    g.selectAll('.bar').data(data).enter().append('rect')
-      .attr('x', 0).attr('y', d => y(d.label) || 0)
-      .attr('width', d => x(d.value)).attr('height', y.bandwidth())
-      .attr('fill', COLORS.accent).attr('rx', 6)
-      .style('cursor', 'pointer')
-      .on('mousemove', function(event, d) {
-        d3.select(this).attr('fill', COLORS.primary)
-        showTooltip(event as any, `${d.label}: ${d.value} pengiriman`)
-      })
-      .on('mouseout', function() {
-        d3.select(this).attr('fill', COLORS.accent)
-        hideTooltip()
-      })
-
-    g.selectAll('.val').data(data).enter().append('text')
-      .attr('x', d => x(d.value) + 8).attr('y', d => (y(d.label) || 0) + y.bandwidth() / 2)
-      .attr('dy', '0.35em').attr('fill', '#475569').style('font-size', '12px').style('font-weight', '600')
-      .text(d => d.value)
-
-    g.append('g').call(d3.axisLeft(y))
-      .selectAll('text').attr('fill', '#475569').style('font-size', '12px').style('font-weight', '500')
-
-    return () => { svg.remove() }
-  }, [data, showTooltip, hideTooltip])
-
-  return <div ref={containerRef} className="w-full h-full" />
 }

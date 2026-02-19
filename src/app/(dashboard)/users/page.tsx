@@ -1,23 +1,30 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { useRouter } from 'next/navigation'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { Badge } from '@/components/ui/badge'
 import { 
-  Users, 
   Loader2, 
+  Users, 
   Plus, 
-  Edit, 
+  Pencil, 
   Trash2, 
-  Search,
+  Search, 
   AlertCircle,
   CheckCircle2,
   XCircle,
+  Mail,
+  User,
   Shield,
-  Building2
+  Store
 } from 'lucide-react'
-import { Input } from '@/components/ui/input'
 
 interface Restaurant {
   id: string
@@ -27,135 +34,226 @@ interface Restaurant {
 
 interface UserData {
   id: string
-  name: string
   email: string
+  name: string
   role: string
-  restaurantId: string | null
-  restaurant?: Restaurant
+  position: string
   isActive: boolean
   createdAt: string
-  updatedAt: string
+  lastLogin: string | null
+  restaurantId: string | null
+  restaurant: Restaurant | null
 }
+
+interface UserFormData {
+  email: string
+  name: string
+  password: string
+  role: string
+  position: string
+  restaurantId: string
+  isActive: boolean
+}
+
+const ROLES = [
+  { value: 'ADMIN_PUSAT', label: 'Admin Pusat', description: 'Akses penuh ke semua fitur' },
+  { value: 'GM', label: 'General Manager', description: 'Manajemen semua restoran' },
+  { value: 'MANAGER', label: 'Manager', description: 'Manajemen satu restoran' },
+  { value: 'ASMAN', label: 'Asisten Manager', description: 'Bantu manager operasional' },
+  { value: 'STAFF', label: 'Staff', description: 'Akses terbatas upload data' }
+]
 
 export default function UsersPage() {
   const { data: session, status } = useSession()
+  const router = useRouter()
+  
   const [users, setUsers] = useState<UserData[]>([])
-  const [filteredUsers, setFilteredUsers] = useState<UserData[]>([])
-  const [searchQuery, setSearchQuery] = useState('')
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isEditMode, setIsEditMode] = useState(false)
+  const [selectedUser, setSelectedUser] = useState<UserData | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
-  const userRole = (session?.user as any)?.role
+  const [formData, setFormData] = useState<UserFormData>({
+    email: '',
+    name: '',
+    password: '',
+    role: 'STAFF',
+    position: 'STAFF',
+    restaurantId: '',
+    isActive: true
+  })
+
+  const userRole = (session?.user as any)?.role || (session?.user as any)?.position || ''
+  const isAdmin = userRole === 'GM' || userRole === 'ADMIN_PUSAT'
 
   useEffect(() => {
-    if (status === 'authenticated' && userRole === 'GM') {
-      fetchUsers()
-    }
-  }, [status, userRole])
-
-  useEffect(() => {
-    if (searchQuery.trim() === '') {
-      setFilteredUsers(users)
-    } else {
-      const query = searchQuery.toLowerCase()
-      const filtered = users.filter(user => 
-        user.name.toLowerCase().includes(query) ||
-        user.email.toLowerCase().includes(query) ||
-        user.role.toLowerCase().includes(query) ||
-        user.restaurant?.name.toLowerCase().includes(query)
-      )
-      setFilteredUsers(filtered)
-    }
-  }, [searchQuery, users])
-
-  const fetchUsers = async () => {
-    setIsLoading(true)
-    setError(null)
-    try {
-      const res = await fetch('/api/users')
-      if (!res.ok) {
-        if (res.status === 401) {
-          throw new Error('Unauthorized. Please login again.')
-        } else if (res.status === 403) {
-          throw new Error('You do not have permission to access this resource.')
-        } else {
-          throw new Error('Failed to fetch users')
-        }
+    if (status === 'authenticated') {
+      if (!isAdmin) {
+        router.push('/')
+      } else {
+        loadData()
       }
-      const data = await res.json()
-      setUsers(data)
-      setFilteredUsers(data)
+    } else if (status === 'unauthenticated') {
+      router.push('/login')
+    }
+  }, [status, isAdmin, router])
+
+  const loadData = async () => {
+    setIsLoading(true)
+    try {
+      const [usersRes, restaurantsRes] = await Promise.all([
+        fetch('/api/users'),
+        fetch('/api/restaurants')
+      ])
+
+      if (usersRes.ok) {
+        const usersData = await usersRes.json()
+        setUsers(usersData)
+      }
+
+      if (restaurantsRes.ok) {
+        const restaurantsData = await restaurantsRes.json()
+        setRestaurants(restaurantsData)
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred')
-      console.error('Error fetching users:', err)
+      console.error('Error loading data:', err)
+      setError('Gagal memuat data')
     } finally {
       setIsLoading(false)
     }
   }
 
-  const handleAddUser = () => {
-    console.log('Add user clicked')
+  const filteredUsers = users.filter(user => 
+    user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    user.role.toLowerCase().includes(searchTerm.toLowerCase())
+  )
+
+  const openAddDialog = () => {
+    setIsEditMode(false)
+    setSelectedUser(null)
+    setFormData({
+      email: '',
+      name: '',
+      password: '',
+      role: 'STAFF',
+      position: 'STAFF',
+      restaurantId: '',
+      isActive: true
+    })
+    setError(null)
+    setIsDialogOpen(true)
   }
 
-  const handleEditUser = (userId: string) => {
-    console.log('Edit user:', userId)
+  const openEditDialog = (user: UserData) => {
+    setIsEditMode(true)
+    setSelectedUser(user)
+    setFormData({
+      email: user.email,
+      name: user.name,
+      password: '',
+      role: user.role,
+      position: user.position,
+      restaurantId: user.restaurantId || '',
+      isActive: user.isActive
+    })
+    setError(null)
+    setIsDialogOpen(true)
   }
 
-  const handleDeleteUser = async (userId: string) => {
-    if (confirm('Are you sure you want to delete this user?')) {
-      console.log('Delete user:', userId)
+  const handleSubmit = async () => {
+    setIsSubmitting(true)
+    setError(null)
+    
+    try {
+      const url = isEditMode ? `/api/users?id=${selectedUser?.id}` : '/api/users'
+      const method = isEditMode ? 'PUT' : 'POST'
+
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      })
+
+      const data = await res.json()
+
+      if (res.ok) {
+        setSuccessMessage(isEditMode ? 'User berhasil diupdate' : 'User berhasil dibuat')
+        setIsDialogOpen(false)
+        loadData()
+        setTimeout(() => setSuccessMessage(null), 3000)
+      } else {
+        setError(data.error || 'Terjadi kesalahan')
+      }
+    } catch (err) {
+      console.error('Error saving user:', err)
+      setError('Terjadi kesalahan saat menyimpan user')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleDelete = async (userId: string) => {
+    if (!confirm('Apakah Anda yakin ingin menghapus user ini?')) return
+
+    try {
+      const res = await fetch(`/api/users?id=${userId}`, {
+        method: 'DELETE'
+      })
+
+      if (res.ok) {
+        setSuccessMessage('User berhasil dihapus')
+        loadData()
+        setTimeout(() => setSuccessMessage(null), 3000)
+      } else {
+        const data = await res.json()
+        alert(data.error || 'Gagal menghapus user')
+      }
+    } catch (err) {
+      console.error('Error deleting user:', err)
+      alert('Terjadi kesalahan saat menghapus user')
     }
   }
 
   const getRoleBadgeColor = (role: string) => {
     switch (role) {
-      case 'GM':
-        return { bg: 'rgba(147, 51, 234, 0.1)', text: 'rgb(147, 51, 234)' }
-      case 'ADMIN_PUSAT':
-        return { bg: 'rgba(59, 130, 246, 0.1)', text: 'rgb(59, 130, 246)' }
-      case 'ADMIN_CABANG':
-        return { bg: 'rgba(34, 197, 94, 0.1)', text: 'rgb(34, 197, 94)' }
-      case 'STAFF':
-        return { bg: 'var(--muted)', text: 'var(--muted-foreground)' }
-      default:
-        return { bg: 'var(--muted)', text: 'var(--muted-foreground)' }
+      case 'ADMIN_PUSAT': return 'bg-red-100 text-red-700 border-red-200'
+      case 'GM': return 'bg-purple-100 text-purple-700 border-purple-200'
+      case 'MANAGER': return 'bg-blue-100 text-blue-700 border-blue-200'
+      case 'ASMAN': return 'bg-cyan-100 text-cyan-700 border-cyan-200'
+      default: return 'bg-slate-100 text-slate-700 border-slate-200'
     }
   }
 
-  const getStatusBadge = (isActive: boolean) => {
-    return isActive 
-      ? { bg: 'rgba(34, 197, 94, 0.1)', text: 'rgb(34, 197, 94)' }
-      : { bg: 'rgba(239, 68, 68, 0.1)', text: 'rgb(239, 68, 68)' }
+  const getRoleLabel = (role: string) => {
+    const roleObj = ROLES.find(r => r.value === role)
+    return roleObj?.label || role
   }
 
-  if (status === 'loading') {
+  if (status === 'loading' || isLoading) {
     return (
-      <div className="p-6 flex items-center justify-center min-h-screen">
-        <Loader2 
-          className="h-8 w-8 animate-spin" 
-          style={{ color: 'var(--primary)' }}
-        />
+      <div className="p-6">
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        </div>
       </div>
     )
   }
 
-  if (userRole !== 'GM') {
+  if (!isAdmin) {
     return (
       <div className="p-6">
-        <Card style={{ backgroundColor: 'var(--card)' }}>
-          <CardContent className="p-8 text-center">
-            <Shield 
-              className="h-12 w-12 mx-auto mb-4" 
-              style={{ color: 'var(--destructive)' }}
-            />
-            <h2 
-              className="text-xl font-semibold mb-2"
-              style={{ color: 'var(--destructive)' }}
-            >
-              Access Denied
-            </h2>
-            <p style={{ color: 'var(--muted-foreground)' }}>
-              Anda tidak memiliki akses ke halaman Users. Halaman ini hanya dapat diakses oleh General Manager.
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-16">
+            <AlertCircle className="h-16 w-16 text-red-500 mb-4" />
+            <h2 className="text-xl font-semibold text-slate-800 mb-2">Akses Ditolak</h2>
+            <p className="text-slate-500 text-center max-w-md">
+              Anda tidak memiliki akses ke halaman ini. Hanya GM dan Admin Pusat yang dapat mengelola user.
             </p>
           </CardContent>
         </Card>
@@ -166,309 +264,259 @@ export default function UsersPage() {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 
-            className="text-2xl font-bold flex items-center gap-2"
-            style={{ color: 'var(--foreground)' }}
-          >
-            <Users style={{ color: 'var(--primary)' }} />
-            Users Management
+          <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+            <Users className="w-7 h-7 text-blue-600" />
+            Manajemen User
           </h1>
-          <p style={{ color: 'var(--muted-foreground)' }} className="mt-1">
-            Kelola pengguna sistem dan akses mereka
-          </p>
+          <p className="text-slate-500 mt-1">Kelola user GM, Admin, Manager, dan Staff</p>
         </div>
-        <Button 
-          onClick={handleAddUser} 
-          className="sm:w-auto w-full"
-          style={{ 
-            backgroundColor: 'var(--primary)',
-            color: 'var(--primary-foreground)'
-          }}
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Add User
+        <Button onClick={openAddDialog} className="gap-2">
+          <Plus className="w-4 h-4" />
+          Tambah User
         </Button>
       </div>
 
-      {/* Search and Stats */}
-      <Card style={{ backgroundColor: 'var(--card)' }}>
-        <CardContent className="p-4">
-          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-            <div className="relative w-full sm:w-96">
-              <Search 
-                className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4" 
-                style={{ color: 'var(--muted-foreground)' }}
-              />
-              <Input
-                placeholder="Search users by name, email, role..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-                style={{ 
-                  backgroundColor: 'var(--input)',
-                  borderColor: 'var(--border)',
-                  color: 'var(--foreground)'
-                }}
-              />
-            </div>
-            <div className="flex gap-4 text-sm">
-              <div className="flex items-center gap-2">
-                <div 
-                  className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: 'rgb(34, 197, 94)' }}
-                />
-                <span style={{ color: 'var(--muted-foreground)' }}>
-                  {users.filter(u => u.isActive).length} Active
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div 
-                  className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: 'rgb(239, 68, 68)' }}
-                />
-                <span style={{ color: 'var(--muted-foreground)' }}>
-                  {users.filter(u => !u.isActive).length} Inactive
-                </span>
-              </div>
-            </div>
+      {/* Success Message */}
+      {successMessage && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-2 text-green-700">
+          <CheckCircle2 className="w-5 h-5" />
+          {successMessage}
+        </div>
+      )}
+
+      {/* Search */}
+      <Card>
+        <CardContent className="pt-6">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5" />
+            <Input
+              placeholder="Cari user berdasarkan nama, email, atau role..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10"
+            />
           </div>
         </CardContent>
       </Card>
 
-      {/* Error State */}
-      {error && (
-        <Card style={{ backgroundColor: 'var(--card)' }}>
-          <CardContent className="p-6">
-            <div 
-              className="flex items-center gap-3"
-              style={{ color: 'var(--destructive)' }}
-            >
-              <AlertCircle className="h-5 w-5" />
-              <p>{error}</p>
-            </div>
-            <Button 
-              variant="outline" 
-              onClick={fetchUsers} 
-              className="mt-4"
-              style={{ 
-                borderColor: 'var(--border)',
-                color: 'var(--foreground)'
-              }}
-            >
-              Try Again
-            </Button>
-          </CardContent>
-        </Card>
-      )}
+      {/* Users List */}
+      <div className="grid gap-4">
+        {filteredUsers.length === 0 ? (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-16">
+              <Users className="h-16 w-16 text-slate-300 mb-4" />
+              <p className="text-slate-500">Tidak ada user ditemukan</p>
+            </CardContent>
+          </Card>
+        ) : (
+          filteredUsers.map((user) => (
+            <Card key={user.id} className="hover:shadow-md transition-shadow">
+              <CardContent className="p-6">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex items-start gap-4">
+                    <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                      <User className="w-6 h-6 text-blue-600" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-slate-800">{user.name}</h3>
+                      <div className="flex items-center gap-2 text-sm text-slate-500 mt-1">
+                        <Mail className="w-4 h-4" />
+                        {user.email}
+                      </div>
+                      <div className="flex items-center gap-2 mt-2">
+                        <Badge variant="outline" className={getRoleBadgeColor(user.role)}>
+                          <Shield className="w-3 h-3 mr-1" />
+                          {getRoleLabel(user.role)}
+                        </Badge>
+                        {user.restaurant && (
+                          <Badge variant="outline" className="bg-slate-50">
+                            <Store className="w-3 h-3 mr-1" />
+                            {user.restaurant.name}
+                          </Badge>
+                        )}
+                        <Badge variant={user.isActive ? 'default' : 'secondary'} className={user.isActive ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'}>
+                          {user.isActive ? (
+                            <><CheckCircle2 className="w-3 h-3 mr-1" /> Aktif</>
+                          ) : (
+                            <><XCircle className="w-3 h-3 mr-1" /> Nonaktif</>
+                          )}
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openEditDialog(user)}
+                      className="gap-2"
+                    >
+                      <Pencil className="w-4 h-4" />
+                      Edit
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDelete(user.id)}
+                      className="gap-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Hapus
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        )}
+      </div>
 
-      {/* Loading State */}
-      {isLoading && (
-        <Card style={{ backgroundColor: 'var(--card)' }}>
-          <CardContent className="p-12">
-            <div className="flex flex-col items-center justify-center gap-4">
-              <Loader2 
-                className="h-8 w-8 animate-spin" 
-                style={{ color: 'var(--primary)' }}
+      {/* Add/Edit Dialog */}
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{isEditMode ? 'Edit User' : 'Tambah User Baru'}</DialogTitle>
+            <DialogDescription>
+              {isEditMode ? 'Update informasi user' : 'Isi informasi untuk membuat user baru'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2 text-red-700 text-sm">
+              <AlertCircle className="w-4 h-4" />
+              {error}
+            </div>
+          )}
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="name">Nama Lengkap</Label>
+              <Input
+                id="name"
+                placeholder="Masukkan nama lengkap"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               />
-              <p style={{ color: 'var(--muted-foreground)' }}>Loading users...</p>
             </div>
-          </CardContent>
-        </Card>
-      )}
 
-      {/* Users Table */}
-      {!isLoading && !error && (
-        <Card style={{ backgroundColor: 'var(--card)' }}>
-          <CardHeader>
-            <CardTitle style={{ color: 'var(--card-foreground)' }} className="text-lg">
-              User List
-            </CardTitle>
-            <CardDescription style={{ color: 'var(--muted-foreground)' }}>
-              {filteredUsers.length} user{filteredUsers.length !== 1 ? 's' : ''} found
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead style={{ backgroundColor: 'var(--muted)' }}>
-                  <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                    <th 
-                      className="text-left py-3 px-4 text-sm font-medium"
-                      style={{ color: 'var(--foreground)' }}
-                    >
-                      Name
-                    </th>
-                    <th 
-                      className="text-left py-3 px-4 text-sm font-medium"
-                      style={{ color: 'var(--foreground)' }}
-                    >
-                      Email
-                    </th>
-                    <th 
-                      className="text-left py-3 px-4 text-sm font-medium"
-                      style={{ color: 'var(--foreground)' }}
-                    >
-                      Role
-                    </th>
-                    <th 
-                      className="text-left py-3 px-4 text-sm font-medium"
-                      style={{ color: 'var(--foreground)' }}
-                    >
-                      Restaurant
-                    </th>
-                    <th 
-                      className="text-left py-3 px-4 text-sm font-medium"
-                      style={{ color: 'var(--foreground)' }}
-                    >
-                      Status
-                    </th>
-                    <th 
-                      className="text-right py-3 px-4 text-sm font-medium"
-                      style={{ color: 'var(--foreground)' }}
-                    >
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredUsers.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="py-12 text-center">
-                        <Users 
-                          className="h-12 w-12 mx-auto mb-4" 
-                          style={{ color: 'var(--muted-foreground)', opacity: 0.5 }}
-                        />
-                        <p style={{ color: 'var(--muted-foreground)' }}>
-                          {searchQuery 
-                            ? 'No users found matching your search.' 
-                            : 'No users found.'}
-                        </p>
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredUsers.map((user) => {
-                      const roleColors = getRoleBadgeColor(user.role)
-                      const statusColors = getStatusBadge(user.isActive)
-                      return (
-                        <tr 
-                          key={user.id}
-                          className="transition-colors"
-                          style={{ 
-                            borderBottom: '1px solid var(--border)',
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.backgroundColor = 'var(--accent)'
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.backgroundColor = 'transparent'
-                          }}
-                        >
-                          <td className="py-3 px-4">
-                            <div className="flex items-center gap-3">
-                              <div 
-                                className="w-8 h-8 rounded-full flex items-center justify-center"
-                                style={{ 
-                                  backgroundColor: 'var(--accent)',
-                                  color: 'var(--accent-foreground)'
-                                }}
-                              >
-                                <span className="text-sm font-medium">
-                                  {user.name.charAt(0).toUpperCase()}
-                                </span>
-                              </div>
-                              <span 
-                                className="font-medium"
-                                style={{ color: 'var(--foreground)' }}
-                              >
-                                {user.name}
-                              </span>
-                            </div>
-                          </td>
-                          <td 
-                            className="py-3 px-4"
-                            style={{ color: 'var(--muted-foreground)' }}
-                          >
-                            {user.email}
-                          </td>
-                          <td className="py-3 px-4">
-                            <span 
-                              className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
-                              style={{
-                                backgroundColor: roleColors.bg,
-                                color: roleColors.text
-                              }}
-                            >
-                              {user.role}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4">
-                            {user.restaurant ? (
-                              <div 
-                                className="flex items-center gap-2"
-                                style={{ color: 'var(--muted-foreground)' }}
-                              >
-                                <Building2 className="h-4 w-4" />
-                                <span>{user.restaurant.name}</span>
-                              </div>
-                            ) : (
-                              <span style={{ color: 'var(--muted-foreground)', opacity: 0.5 }}>-</span>
-                            )}
-                          </td>
-                          <td className="py-3 px-4">
-                            <span 
-                              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium"
-                              style={{
-                                backgroundColor: statusColors.bg,
-                                color: statusColors.text
-                              }}
-                            >
-                              {user.isActive ? (
-                                <>
-                                  <CheckCircle2 className="h-3 w-3" />
-                                  Active
-                                </>
-                              ) : (
-                                <>
-                                  <XCircle className="h-3 w-3" />
-                                  Inactive
-                                </>
-                              )}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4">
-                            <div className="flex items-center justify-end gap-2">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleEditUser(user.id)}
-                                className="h-8 w-8"
-                                style={{ color: 'var(--primary)' }}
-                              >
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleDeleteUser(user.id)}
-                                className="h-8 w-8"
-                                style={{ color: 'var(--destructive)' }}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    })
-                  )}
-                </tbody>
-              </table>
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="Masukkan email"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              />
             </div>
-          </CardContent>
-        </Card>
-      )}
+
+            <div className="space-y-2">
+              <Label htmlFor="password">
+                Password {isEditMode && '(Kosongkan jika tidak ingin mengubah)'}
+              </Label>
+              <Input
+                id="password"
+                type="password"
+                placeholder={isEditMode ? '••••••••' : 'Masukkan password'}
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="role">Role</Label>
+              <Select
+                value={formData.role}
+                onValueChange={(value) => {
+                  setFormData({ 
+                    ...formData, 
+                    role: value,
+                    position: value
+                  })
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Pilih role" />
+                </SelectTrigger>
+                <SelectContent>
+                  {ROLES.map((role) => (
+                    <SelectItem key={role.value} value={role.value}>
+                      <div className="flex flex-col">
+                        <span>{role.label}</span>
+                        <span className="text-xs text-slate-500">{role.description}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="restaurant">Restoran (Opsional)</Label>
+              <Select
+                value={formData.restaurantId}
+                onValueChange={(value) => setFormData({ ...formData, restaurantId: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Pilih restoran (opsional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Tidak ada</SelectItem>
+                  {restaurants.map((restaurant) => (
+                    <SelectItem key={restaurant.id} value={restaurant.id}>
+                      {restaurant.name} ({restaurant.code})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="status">Status</Label>
+              <Select
+                value={formData.isActive ? 'active' : 'inactive'}
+                onValueChange={(value) => setFormData({ ...formData, isActive: value === 'active' })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Pilih status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-green-600" />
+                      Aktif
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="inactive">
+                    <div className="flex items-center gap-2">
+                      <XCircle className="w-4 h-4 text-slate-400" />
+                      Nonaktif
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3">
+            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
+              Batal
+            </Button>
+            <Button onClick={handleSubmit} disabled={isSubmitting}>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Menyimpan...
+                </>
+              ) : (
+                isEditMode ? 'Update User' : 'Buat User'
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

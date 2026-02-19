@@ -95,7 +95,7 @@ export default function OrdersPage() {
     fetchData()
     const interval = setInterval(fetchData, 10000)
     return () => clearInterval(interval)
-  }, [])
+  }, [selectedRestaurant])
 
   useEffect(() => {
     if (userRestaurantId && selectedRestaurant === 'all') {

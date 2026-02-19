@@ -1,13 +1,58 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback, createContext, useContext } from 'react'
 import { useSession } from 'next-auth/react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Loader2, TrendingUp, Clock, AlertTriangle, CheckCircle2, Info, AlertCircle, Upload } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Loader2, TrendingUp, Clock, AlertTriangle, CheckCircle2, Info, AlertCircle, Upload, Download, RefreshCw, MapPin, CalendarDays, Filter, ChevronDown, ChevronUp } from 'lucide-react'
 import Link from 'next/link'
 import * as d3 from 'd3'
+import { createPortal } from 'react-dom'
 
+// ==================== TOOLTIP CONTEXT ====================
+interface TooltipContextType {
+  showTooltip: (content: string, subtext: string, x: number, y: number) => void
+  hideTooltip: () => void
+}
+
+const TooltipContext = createContext<TooltipContextType | null>(null)
+
+function useTooltipContext() {
+  const context = useContext(TooltipContext)
+  if (!context) throw new Error('useTooltipContext must be used within TooltipProvider')
+  return context
+}
+
+function TooltipProvider({ children }: { children: React.ReactNode }) {
+  const [tooltip, setTooltip] = useState({ visible: false, content: '', subtext: '', x: 0, y: 0 })
+  const showTooltip = useCallback((content: string, subtext: string, x: number, y: number) => {
+    setTooltip({ visible: true, content, subtext, x, y })
+  }, [])
+  const hideTooltip = useCallback(() => setTooltip(prev => ({ ...prev, visible: false })), [])
+
+  return (
+    <TooltipContext.Provider value={{ showTooltip, hideTooltip }}>
+      {children}
+      {tooltip.visible && typeof document !== 'undefined' && createPortal(
+        <div className="fixed z-[99999] pointer-events-none animate-in fade-in zoom-in-95 duration-150"
+          style={{ left: tooltip.x + 12, top: tooltip.y - 12, transform: 'translate(0, -100%)' }}>
+          <div className="bg-slate-900 text-white px-4 py-3 rounded-xl shadow-2xl border border-slate-700 max-w-xs">
+            <div className="font-semibold text-xs">{tooltip.content}</div>
+            {tooltip.subtext && <div className="text-xs text-slate-400 mt-1">{tooltip.subtext}</div>}
+            <div className="absolute top-full left-4 -translate-x-1/2 -mt-1">
+              <div className="border-8 border-transparent border-t-slate-900"></div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </TooltipContext.Provider>
+  )
+}
+
+// ==================== INTERFACES ====================
 interface Restaurant {
   id: string
   name: string
@@ -26,6 +71,13 @@ interface AnalyticsData {
   paymentStats: { method: string; count: number }[]
 }
 
+interface FilterState {
+  month: string
+  pizzaSize: string
+  pizzaType: string
+  paymentMethod: string
+}
+
 const COLORS = {
   primary: '#3b82f6',
   secondary: '#8b5cf6',
@@ -37,376 +89,457 @@ const COLORS = {
   cyan: '#06b6d4'
 }
 
-interface TooltipState {
-  visible: boolean
-  x: number
-  y: number
-  content: string
-}
+const CHART_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#06b6d4', '#f97316']
 
-function useTooltip() {
-  const [tooltip, setTooltip] = useState<TooltipState>({
-    visible: false,
-    x: 0,
-    y: 0,
-    content: ''
-  })
-
-  const showTooltip = (e: React.MouseEvent, content: string) => {
-    setTooltip({
-      visible: true,
-      x: e.clientX + 10,
-      y: e.clientY - 30,
-      content
-    })
-  }
-
-  const hideTooltip = () => {
-    setTooltip(prev => ({ ...prev, visible: false }))
-  }
-
-  return { tooltip, showTooltip, hideTooltip }
-}
-
-interface ChartCardProps {
-  title: string
-  description: string
-  explanation: string
-  children: React.ReactNode
-  className?: string
-}
-
-function ChartCard({ title, description, explanation, children, className = '' }: ChartCardProps) {
-  const [showExplanation, setShowExplanation] = useState(false)
+// ==================== SLICER COMPONENT ====================
+function DataSlicer({ 
+  filters, 
+  setFilters, 
+  months,
+  pizzaSizes,
+  pizzaTypes,
+  paymentMethods,
+  activeFiltersCount,
+  onClearFilters
+}: {
+  filters: FilterState
+  setFilters: React.Dispatch<React.SetStateAction<FilterState>>
+  months: string[]
+  pizzaSizes: string[]
+  pizzaTypes: string[]
+  paymentMethods: string[]
+  activeFiltersCount: number
+  onClearFilters: () => void
+}) {
+  const [isExpanded, setIsExpanded] = useState(true)
 
   return (
-    <Card className={`${className}`}>
-      <CardHeader className="pb-2">
-        <div className="flex items-start justify-between">
-          <div>
-            <CardTitle className="text-lg">{title}</CardTitle>
-            <CardDescription>{description}</CardDescription>
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-6">
+      <div 
+        className="flex items-center justify-between px-6 py-4 bg-slate-50 border-b border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+            <Filter className="w-5 h-5 text-blue-600" />
           </div>
-          <button 
-            onClick={() => setShowExplanation(!showExplanation)}
-            className="p-2 hover:bg-slate-100 rounded-full transition-colors"
-            title="Lihat penjelasan"
+          <div>
+            <h3 className="font-semibold text-slate-800">Slicer Data (Pemotong Data)</h3>
+            <p className="text-xs text-slate-500">Filter data berdasarkan dimensi yang tersedia</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {activeFiltersCount > 0 && (
+            <Badge variant="secondary" className="bg-blue-100 text-blue-700">
+              {activeFiltersCount} filter aktif
+            </Badge>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation()
+              onClearFilters()
+            }}
+            disabled={activeFiltersCount === 0}
           >
-            <Info className="w-5 h-5 text-slate-400" />
-          </button>
+            Reset
+          </Button>
+          {isExpanded ? <ChevronUp className="w-5 h-5 text-slate-400" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
         </div>
-      </CardHeader>
-      <CardContent>
-        <div className="min-h-[200px]">
-          {children}
-        </div>
-        
-        {showExplanation && (
-          <div className="mt-4 p-4 bg-blue-50 rounded-xl border border-blue-100">
-            <div className="flex items-start gap-2">
-              <Info className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
-              <p className="text-sm text-blue-800">{explanation}</p>
+      </div>
+
+      {isExpanded && (
+        <div className="p-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Bulan</label>
+              <Select value={filters.month} onValueChange={(value) => setFilters(prev => ({ ...prev, month: value }))}>
+                <SelectTrigger className="w-full"><SelectValue placeholder="Semua Bulan" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Semua Bulan</SelectItem>
+                  {months.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Ukuran Pizza</label>
+              <Select value={filters.pizzaSize} onValueChange={(value) => setFilters(prev => ({ ...prev, pizzaSize: value }))}>
+                <SelectTrigger className="w-full"><SelectValue placeholder="Semua Ukuran" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Semua Ukuran</SelectItem>
+                  {pizzaSizes.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Jenis Pizza</label>
+              <Select value={filters.pizzaType} onValueChange={(value) => setFilters(prev => ({ ...prev, pizzaType: value }))}>
+                <SelectTrigger className="w-full"><SelectValue placeholder="Semua Jenis" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Semua Jenis</SelectItem>
+                  {pizzaTypes.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Pembayaran</label>
+              <Select value={filters.paymentMethod} onValueChange={(value) => setFilters(prev => ({ ...prev, paymentMethod: value }))}>
+                <SelectTrigger className="w-full"><SelectValue placeholder="Semua Metode" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Semua Metode</SelectItem>
+                  {paymentMethods.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
           </div>
-        )}
-      </CardContent>
-    </Card>
+        </div>
+      )}
+    </div>
   )
 }
 
-function InteractiveLineChart({ data, color = COLORS.primary }: { data: { label: string, value: number }[], color?: string }) {
+// ==================== INTERACTIVE BAR CHART ====================
+function InteractiveBarChart({ data, color = COLORS.primary }: { data: { label: string; value: number }[], color?: string }) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const { tooltip, showTooltip, hideTooltip } = useTooltip()
+  const { showTooltip, hideTooltip } = useTooltipContext()
+  const hasAnimated = useRef(false)
 
   useEffect(() => {
     if (!containerRef.current || !data.length) return
-
     const container = containerRef.current
     const width = container.clientWidth
-    const height = 200
-    
-    if (width === 0) return
+    const height = container.clientHeight
+    if (width === 0 || height === 0) return
 
-    const svg = d3.select(container).append('svg')
-      .attr('width', width)
-      .attr('height', height)
-
-    const margin = { top: 20, right: 30, bottom: 40, left: 40 }
+    const svg = d3.select(container).append('svg').attr('width', width).attr('height', height)
+    const margin = { top: 20, right: 20, bottom: 60, left: 50 }
     const innerWidth = width - margin.left - margin.right
     const innerHeight = height - margin.top - margin.bottom
-
     const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`)
 
-    const x = d3.scalePoint().domain(data.map(d => d.label)).range([0, innerWidth]).padding(0.5)
+    const x = d3.scaleBand().domain(data.map(d => d.label)).range([0, innerWidth]).padding(0.3)
     const y = d3.scaleLinear().domain([0, d3.max(data, d => d.value) || 0]).nice().range([innerHeight, 0])
 
-    const line = d3.line<{ label: string, value: number }>()
-      .x(d => x(d.label) || 0)
-      .y(d => y(d.value))
-      .curve(d3.curveMonotoneX)
+    g.append('g').attr('class', 'grid').call(d3.axisLeft(y).tickSize(-innerWidth).tickFormat(() => ''))
+      .selectAll('line').attr('stroke', '#e2e8f0').attr('stroke-dasharray', '2,2')
+    g.select('.grid').select('.domain').remove()
 
-    g.append('path')
-      .datum(data)
-      .attr('fill', 'none')
-      .attr('stroke', color)
-      .attr('stroke-width', 3)
-      .attr('d', line)
+    const bars = g.selectAll('.bar').data(data).enter().append('rect')
+      .attr('class', 'bar').attr('x', d => x(d.label) || 0).attr('width', x.bandwidth())
+      .attr('fill', color).attr('rx', 6).style('cursor', 'pointer')
 
-    g.selectAll('.dot')
-      .data(data)
-      .enter()
-      .append('circle')
-      .attr('cx', d => x(d.label) || 0)
-      .attr('cy', d => y(d.value))
-      .attr('r', 5)
-      .attr('fill', color)
-      .attr('stroke', 'white')
-      .attr('stroke-width', 2)
-      .style('cursor', 'pointer')
-      .on('mouseover', function(event, d) {
-        d3.select(this).attr('r', 7)
-        showTooltip(event as any, `${d.label}: ${d.value} order`)
-      })
-      .on('mouseout', function() {
-        d3.select(this).attr('r', 5)
-        hideTooltip()
-      })
-
-    g.append('g')
-      .attr('transform', `translate(0,${innerHeight})`)
-      .call(d3.axisBottom(x))
-      .selectAll('text')
-      .attr('fill', '#64748b')
-      .style('font-size', '11px')
-
-    g.append('g')
-      .call(d3.axisLeft(y).ticks(5))
-      .selectAll('text')
-      .attr('fill', '#64748b')
-      .style('font-size', '11px')
-
-    return () => {
-      svg.remove()
+    if (!hasAnimated.current) {
+      bars.attr('y', innerHeight).attr('height', 0)
+        .transition().duration(800).delay((d, i) => i * 50)
+        .attr('y', d => y(d.value)).attr('height', d => innerHeight - y(d.value))
+      hasAnimated.current = true
+    } else {
+      bars.attr('y', d => y(d.value)).attr('height', d => innerHeight - y(d.value))
     }
-  }, [data, color, showTooltip, hideTooltip])
 
-  return (
-    <>
-      <div ref={containerRef} className="w-full" />
-      {tooltip.visible && (
-        <div 
-          className="fixed bg-slate-800 text-white px-3 py-2 rounded-lg text-sm z-50 pointer-events-none shadow-lg"
-          style={{ left: tooltip.x, top: tooltip.y }}
-        >
-          {tooltip.content}
-        </div>
-      )}
-    </>
-  )
+    g.selectAll('.label').data(data).enter().append('text')
+      .attr('class', 'label').attr('x', d => (x(d.label) || 0) + x.bandwidth() / 2)
+      .attr('y', d => y(d.value) - 5).attr('text-anchor', 'middle')
+      .style('font-size', '11px').style('font-weight', '600').style('fill', '#475569')
+      .style('opacity', 0).text(d => d.value)
+      .transition().delay(600).duration(300).style('opacity', 1)
+
+    g.append('g').attr('transform', `translate(0,${innerHeight})`).call(d3.axisBottom(x))
+      .selectAll('text').attr('fill', '#64748b').style('font-size', '10px')
+      .attr('transform', 'rotate(-35)').style('text-anchor', 'end')
+    g.append('g').call(d3.axisLeft(y).ticks(5)).selectAll('text').attr('fill', '#64748b').style('font-size', '10px')
+
+    bars.on('mouseenter', function(event: any, d: any) {
+      d3.select(this).attr('opacity', 0.8)
+      const percentage = ((d.value / data.reduce((sum, item) => sum + item.value, 0)) * 100).toFixed(1)
+      showTooltip(`${d.label}: ${d.value}`, `${percentage}% dari total`, event.clientX, event.clientY)
+    }).on('mouseleave', function() {
+      d3.select(this).attr('opacity', 1)
+      hideTooltip()
+    })
+
+    return () => { svg.remove() }
+  }, [data, color])
+
+  return <div ref={containerRef} className="w-full h-full" />
 }
 
-function InteractiveBarChart({ data, color = COLORS.primary }: { data: { label: string, value: number }[], color?: string }) {
+// ==================== INTERACTIVE LINE CHART ====================
+function InteractiveLineChart({ data, color = COLORS.primary }: { data: { label: string; value: number }[], color?: string }) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const { tooltip, showTooltip, hideTooltip } = useTooltip()
+  const { showTooltip, hideTooltip } = useTooltipContext()
+  const hasAnimated = useRef(false)
 
   useEffect(() => {
     if (!containerRef.current || !data.length) return
-
     const container = containerRef.current
     const width = container.clientWidth
-    const height = 200
-    
-    if (width === 0) return
+    const height = container.clientHeight
+    if (width === 0 || height === 0) return
 
-    const svg = d3.select(container).append('svg')
-      .attr('width', width)
-      .attr('height', height)
-
-    const margin = { top: 20, right: 20, bottom: 60, left: 40 }
+    const svg = d3.select(container).append('svg').attr('width', width).attr('height', height)
+    const margin = { top: 20, right: 30, bottom: 60, left: 50 }
     const innerWidth = width - margin.left - margin.right
     const innerHeight = height - margin.top - margin.bottom
-
     const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`)
 
-    const x = d3.scaleBand()
-      .domain(data.map(d => d.label))
-      .range([0, innerWidth])
-      .padding(0.3)
+    // Use scaleBand for better label handling with many data points
+    const x = d3.scaleBand().domain(data.map(d => d.label)).range([0, innerWidth]).padding(0.1)
+    const y = d3.scaleLinear().domain([0, d3.max(data, d => d.value) || 0]).nice().range([innerHeight, 0])
 
-    const y = d3.scaleLinear()
-      .domain([0, d3.max(data, d => d.value) || 0])
-      .nice()
-      .range([innerHeight, 0])
+    const defs = svg.append('defs')
+    const gradient = defs.append('linearGradient').attr('id', 'areaGradient').attr('x1', '0%').attr('y1', '0%').attr('x2', '0%').attr('y2', '100%')
+    gradient.append('stop').attr('offset', '0%').attr('stop-color', color).attr('stop-opacity', 0.25)
+    gradient.append('stop').attr('offset', '100%').attr('stop-color', color).attr('stop-opacity', 0)
 
-    g.selectAll('.bar')
-      .data(data)
-      .enter()
-      .append('rect')
-      .attr('x', d => x(d.label) || 0)
-      .attr('y', d => y(d.value))
-      .attr('width', x.bandwidth())
-      .attr('height', d => innerHeight - y(d.value))
-      .attr('fill', color)
-      .attr('rx', 4)
-      .style('cursor', 'pointer')
-      .on('mouseover', function(event, d) {
-        d3.select(this).attr('opacity', 0.8)
-        showTooltip(event as any, `${d.label}: ${d.value} order`)
-      })
-      .on('mouseout', function() {
-        d3.select(this).attr('opacity', 1)
-        hideTooltip()
-      })
+    const area = d3.area<{ label: string; value: number }>().x(d => (x(d.label) || 0) + x.bandwidth() / 2).y0(innerHeight).y1(d => y(d.value)).curve(d3.curveMonotoneX)
+    g.append('path').datum(data).attr('fill', 'url(#areaGradient)').attr('d', area)
 
-    g.append('g')
-      .attr('transform', `translate(0,${innerHeight})`)
-      .call(d3.axisBottom(x))
-      .selectAll('text')
-      .attr('fill', '#64748b')
-      .style('font-size', '10px')
-      .attr('transform', 'rotate(-45)')
-      .style('text-anchor', 'end')
+    const line = d3.line<{ label: string; value: number }>().x(d => (x(d.label) || 0) + x.bandwidth() / 2).y(d => y(d.value)).curve(d3.curveMonotoneX)
+    const path = g.append('path').datum(data).attr('fill', 'none').attr('stroke', color).attr('stroke-width', 3).attr('d', line)
 
-    g.append('g')
-      .call(d3.axisLeft(y).ticks(5))
-      .selectAll('text')
-      .attr('fill', '#64748b')
-      .style('font-size', '11px')
-
-    return () => {
-      svg.remove()
+    if (!hasAnimated.current) {
+      const totalLength = path.node()?.getTotalLength() || 0
+      path.attr('stroke-dasharray', totalLength + ' ' + totalLength).attr('stroke-dashoffset', totalLength)
+        .transition().duration(1500).ease(d3.easeLinear).attr('stroke-dashoffset', 0)
+      hasAnimated.current = true
     }
-  }, [data, color, showTooltip, hideTooltip])
 
-  return (
-    <>
-      <div ref={containerRef} className="w-full" />
-      {tooltip.visible && (
-        <div 
-          className="fixed bg-slate-800 text-white px-3 py-2 rounded-lg text-sm z-50 pointer-events-none shadow-lg"
-          style={{ left: tooltip.x, top: tooltip.y }}
-        >
-          {tooltip.content}
-        </div>
-      )}
-    </>
-  )
+    // Add dots at data points
+    g.selectAll('.dot').data(data).enter().append('circle')
+      .attr('class', 'dot').attr('cx', d => (x(d.label) || 0) + x.bandwidth() / 2).attr('cy', d => y(d.value))
+      .attr('r', 0).attr('fill', color).attr('stroke', 'white').attr('stroke-width', 2).style('cursor', 'pointer')
+      .transition().delay((d, i) => i * 80 + 800).duration(300).attr('r', 5)
+
+    // Add X axis with smart label rotation based on data count
+    const xAxis = g.append('g').attr('transform', `translate(0,${innerHeight})`).call(d3.axisBottom(x))
+    
+    // Smart label handling - rotate if many labels or long labels
+    const shouldRotate = data.length > 6
+    xAxis.selectAll('text')
+      .attr('fill', '#64748b')
+      .style('font-size', shouldRotate ? '10px' : '11px')
+      .attr('transform', shouldRotate ? 'rotate(-35)' : 'none')
+      .style('text-anchor', shouldRotate ? 'end' : 'middle')
+      .each(function() {
+        const label = d3.select(this).text()
+        if (label.length > 8 && !shouldRotate) {
+          d3.select(this).text(label.substring(0, 6) + '...')
+        }
+      })
+    
+    g.append('g').call(d3.axisLeft(y).ticks(5)).selectAll('text').attr('fill', '#64748b').style('font-size', '11px')
+
+    g.selectAll('.dot').on('mouseenter', function(event: any, d: any) {
+      d3.select(this).transition().duration(150).attr('r', 8)
+      showTooltip(`${d.label}`, `${d.value} pesanan`, event.clientX, event.clientY)
+    }).on('mouseleave', function() {
+      d3.select(this).transition().duration(150).attr('r', 5)
+      hideTooltip()
+    })
+
+    return () => { svg.remove() }
+  }, [data, color])
+
+  return <div ref={containerRef} className="w-full h-full" />
 }
 
-function InteractivePieChart({ data, colors }: { data: { label: string, value: number }[], colors?: string[] }) {
+// ==================== INTERACTIVE PIE CHART (FIXED SIZE) ====================
+function InteractivePieChart({ data, colors }: { data: { label: string; value: number }[], colors?: string[] }) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const { tooltip, showTooltip, hideTooltip } = useTooltip()
-  const defaultColors = ['#3b82f6', '#8b5cf6', '#10b981', '#ef4444', '#f59e0b', '#06b6d4']
+  const { showTooltip, hideTooltip } = useTooltipContext()
+  const hasAnimated = useRef(false)
+  const defaultColors = CHART_COLORS
 
   useEffect(() => {
     if (!containerRef.current || !data.length) return
-
     const container = containerRef.current
     const width = container.clientWidth
-    const height = 180
-    
-    if (width === 0) return
+    const height = container.clientHeight
+    if (width === 0 || height === 0) return
 
-    const size = Math.min(width, height) * 0.8
+    // Use full container height for consistent sizing with other charts
+    const size = Math.min(width, height) * 0.75
     const radius = size / 2
 
-    const svg = d3.select(container).append('svg')
-      .attr('width', width)
-      .attr('height', height)
+    const svg = d3.select(container).append('svg').attr('width', width).attr('height', height)
+    const g = svg.append('g').attr('transform', `translate(${width / 2},${height / 2})`)
 
-    const g = svg.append('g')
-      .attr('transform', `translate(${width / 2},${height / 2})`)
+    const color = d3.scaleOrdinal<string>().domain(data.map(d => d.label)).range(colors || defaultColors)
+    const pie = d3.pie<{ label: string; value: number }>().value(d => d.value).sort(null).padAngle(0.02)
+    const arc = d3.arc<d3.PieArcDatum<{ label: string; value: number }>>().innerRadius(radius * 0.55).outerRadius(radius)
+    const arcHover = d3.arc<d3.PieArcDatum<{ label: string; value: number }>>().innerRadius(radius * 0.55).outerRadius(radius * 1.08)
 
-    const color = d3.scaleOrdinal<string>()
-      .domain(data.map(d => d.label))
-      .range(colors || defaultColors)
+    const total = data.reduce((a, b) => a + b.value, 0)
 
-    const pie = d3.pie<{ label: string, value: number }>()
-      .value(d => d.value)
-      .sort(null)
-
-    const arc = d3.arc<d3.PieArcDatum<{ label: string, value: number }>>()
-      .innerRadius(radius * 0.5)
-      .outerRadius(radius)
-
-    g.selectAll('.arc')
-      .data(pie(data))
-      .enter()
-      .append('path')
-      .attr('d', arc)
-      .attr('fill', d => color(d.data.label))
-      .attr('stroke', 'white')
-      .attr('stroke-width', 2)
+    const paths = g.selectAll('.arc').data(pie(data)).enter().append('path')
+      .attr('class', 'arc').attr('fill', d => color(d.data.label)).attr('stroke', 'white').attr('stroke-width', 3)
       .style('cursor', 'pointer')
-      .on('mouseover', function(event, d) {
-        d3.select(this).transition().duration(200).attr('transform', 'scale(1.05)')
-        const percent = ((d.data.value / data.reduce((a, b) => a + b.value, 0)) * 100).toFixed(1)
-        showTooltip(event as any, `${d.data.label}: ${d.data.value} (${percent}%)`)
-      })
-      .on('mouseout', function() {
-        d3.select(this).transition().duration(200).attr('transform', 'scale(1)')
-        hideTooltip()
-      })
 
-    return () => {
-      svg.remove()
+    if (!hasAnimated.current) {
+      paths.transition().duration(1000).attrTween('d', function(d) {
+        const i = d3.interpolate(d.startAngle + 0.1, d.endAngle)
+        return function(t) { d.endAngle = i(t); return arc(d) || '' }
+      })
+      hasAnimated.current = true
+    } else {
+      paths.attr('d', arc)
     }
-  }, [data, colors, showTooltip, hideTooltip])
+
+    g.append('text').attr('text-anchor', 'middle').attr('dy', '-0.2em')
+      .style('font-size', '16px').style('font-weight', 'bold').style('fill', '#334155')
+      .text(total.toLocaleString())
+    g.append('text').attr('text-anchor', 'middle').attr('dy', '1.3em')
+      .style('font-size', '11px').style('fill', '#64748b').text('Total')
+
+    paths.on('mouseenter', function(event: any, d: any) {
+      d3.select(this).transition().duration(200).attrTween('d', function() {
+        return function() { return arcHover(d) || '' }
+      })
+      const percent = ((d.data.value / total) * 100).toFixed(1)
+      showTooltip(`${d.data.label}`, `${d.data.value} order (${percent}%)`, event.clientX, event.clientY)
+    }).on('mouseleave', function(event: any, d: any) {
+      d3.select(this).transition().duration(200).attrTween('d', function() {
+        return function() { return arc(d) || '' }
+      })
+      hideTooltip()
+    })
+
+    return () => { svg.remove() }
+  }, [data, colors])
 
   const chartColors = colors || defaultColors
 
   return (
-    <>
-      <div ref={containerRef} className="w-full flex justify-center" />
-      <div className="flex flex-wrap justify-center gap-2 mt-2">
+    <div className="w-full h-full flex flex-col">
+      <div ref={containerRef} className="flex-1 min-h-[200px]" />
+      <div className="flex flex-wrap justify-center gap-2 px-2">
         {data.slice(0, 6).map((item, i) => (
           <div key={item.label} className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-full">
-            <div 
-              className="w-2.5 h-2.5 rounded-full flex-shrink-0" 
-              style={{ backgroundColor: chartColors[i % chartColors.length] }} 
-            />
+            <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: chartColors[i % chartColors.length] }} />
             <span className="text-xs text-slate-600">{item.label}</span>
           </div>
         ))}
       </div>
-      {tooltip.visible && (
-        <div 
-          className="fixed bg-slate-800 text-white px-3 py-2 rounded-lg text-sm z-50 pointer-events-none shadow-lg"
-          style={{ left: tooltip.x, top: tooltip.y }}
-        >
-          {tooltip.content}
-        </div>
-      )}
-    </>
+    </div>
   )
 }
 
+// ==================== CHART CARD ====================
+function ChartCard({ title, description, explanation, insight, recommendation, children }: {
+  title: string
+  description: string
+  explanation: string
+  insight?: string
+  recommendation?: string
+  children: React.ReactNode
+}) {
+  return (
+    <Card className="h-full flex flex-col">
+      <CardHeader className="pb-2">
+        <div>
+          <CardTitle className="text-lg font-bold text-slate-800">{title}</CardTitle>
+          <CardDescription className="text-[8px] text-slate-500 mt-0.5">{description}</CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent className="flex-1 min-h-[280px]">
+        {children}
+      </CardContent>
+      
+      {/* Insight & Rekomendasi - Always visible */}
+      {(insight || recommendation) && (
+        <div className="px-4 pb-4">
+          {insight && recommendation ? (
+            <div className="bg-gradient-to-r from-amber-50 to-green-50 rounded-xl p-4 border-l-4 border-amber-400">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-lg">💡</span>
+                <h4 className="font-bold text-amber-800 text-xs uppercase tracking-wide">Insight & Rekomendasi</h4>
+              </div>
+              <p className="text-xs text-slate-700 leading-relaxed">{insight} {recommendation}</p>
+            </div>
+          ) : insight ? (
+            <div className="bg-amber-50 rounded-xl p-4 border-l-4 border-amber-500">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-lg">💡</span>
+                <h4 className="font-bold text-amber-800 text-xs uppercase tracking-wide">Insight</h4>
+              </div>
+              <p className="text-xs text-amber-900 leading-relaxed">{insight}</p>
+            </div>
+          ) : recommendation ? (
+            <div className="bg-green-50 rounded-xl p-4 border-l-4 border-green-500">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-lg">🎯</span>
+                <h4 className="font-bold text-green-800 text-xs uppercase tracking-wide">Rekomendasi</h4>
+              </div>
+              <p className="text-xs text-green-900 leading-relaxed">{recommendation}</p>
+            </div>
+          ) : null}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+// ==================== MAIN ANALYTICS PAGE ====================
 export default function AnalyticsPage() {
+  return (
+    <TooltipProvider>
+      <AnalyticsContent />
+    </TooltipProvider>
+  )
+}
+
+function AnalyticsContent() {
   const { data: session, status } = useSession()
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [selectedRestaurant, setSelectedRestaurant] = useState<string>('')
-  const [data, setData] = useState<AnalyticsData | null>(null)
+  const [rawData, setRawData] = useState<AnalyticsData | null>(null)
+  const [filteredData, setFilteredData] = useState<AnalyticsData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  
+  // Separate state for filter options (always shows all available values)
+  const [filterOptions, setFilterOptions] = useState<{
+    months: string[]
+    pizzaSizes: string[]
+    pizzaTypes: string[]
+    paymentMethods: string[]
+  }>({ months: [], pizzaSizes: [], pizzaTypes: [], paymentMethods: [] })
+  
+  const [filters, setFilters] = useState<FilterState>({
+    month: 'all',
+    pizzaSize: 'all',
+    pizzaType: 'all',
+    paymentMethod: 'all'
+  })
 
   const userRole = (session?.user as any)?.role || (session?.user as any)?.position || 'STAFF'
   const userRestaurantId = (session?.user as any)?.restaurantId
   const isSuperAdmin = userRole === 'GM' || userRole === 'ADMIN_PUSAT'
   const isManager = userRole === 'MANAGER'
-
   const canAccess = isSuperAdmin || isManager
 
   useEffect(() => {
-    if (status === 'authenticated' && canAccess) {
-      loadData()
-    }
+    if (status === 'authenticated' && canAccess) loadData()
   }, [status, canAccess])
 
   useEffect(() => {
     if (selectedRestaurant && canAccess) {
       loadAnalytics()
+      loadFilterOptions(selectedRestaurant)
     }
   }, [selectedRestaurant])
+
+  // Apply filters when filters change - reload analytics
+  useEffect(() => {
+    if (selectedRestaurant && canAccess && rawData) {
+      loadAnalytics()
+    }
+  }, [filters])
 
   const loadData = async () => {
     try {
@@ -414,12 +547,8 @@ export default function AnalyticsPage() {
       if (restaurantsRes.ok) {
         const restaurantsData = await restaurantsRes.json()
         setRestaurants(restaurantsData)
-        
-        if (userRestaurantId) {
-          setSelectedRestaurant(userRestaurantId)
-        } else if (restaurantsData.length > 0) {
-          setSelectedRestaurant(restaurantsData[0].id)
-        }
+        if (userRestaurantId) setSelectedRestaurant(userRestaurantId)
+        else if (restaurantsData.length > 0) setSelectedRestaurant(restaurantsData[0].id)
       }
     } catch (err) {
       console.error('Error loading data:', err)
@@ -427,19 +556,44 @@ export default function AnalyticsPage() {
     }
   }
 
-  const loadAnalytics = async () => {
-    if (!selectedRestaurant) return
-    
-    setIsLoading(true)
-    setError(null)
-    
+  // Load filter options when restaurant is selected
+  const loadFilterOptions = async (restaurantId: string) => {
     try {
-      const url = `/api/analytics?restaurantId=${selectedRestaurant}`
-      const res = await fetch(url)
+      const params = new URLSearchParams()
+      params.set('restaurantId', restaurantId)
+      params.set('getFilterOptions', 'true')
       
+      const res = await fetch(`/api/analytics?${params.toString()}`)
       if (res.ok) {
         const result = await res.json()
-        setData(result)
+        if (result.filterOptions) {
+          setFilterOptions(result.filterOptions)
+        }
+      }
+    } catch (err) {
+      console.error('Error loading filter options:', err)
+    }
+  }
+
+  const loadAnalytics = async () => {
+    if (!selectedRestaurant) return
+    setIsLoading(true)
+    setError(null)
+    try {
+      // Build query params including filters
+      const params = new URLSearchParams()
+      params.set('restaurantId', selectedRestaurant)
+      
+      if (filters.month !== 'all') params.set('month', filters.month)
+      if (filters.pizzaSize !== 'all') params.set('pizzaSize', filters.pizzaSize)
+      if (filters.pizzaType !== 'all') params.set('pizzaType', filters.pizzaType)
+      if (filters.paymentMethod !== 'all') params.set('paymentMethod', filters.paymentMethod)
+      
+      const res = await fetch(`/api/analytics?${params.toString()}`)
+      if (res.ok) {
+        const result = await res.json()
+        setRawData(result)
+        setFilteredData(result)
       } else {
         setError('Gagal memuat analytics')
       }
@@ -451,19 +605,42 @@ export default function AnalyticsPage() {
     }
   }
 
+  const exportData = () => {
+    if (!filteredData) return
+    const csvData = [
+      ['Metrik', 'Nilai'].join(','),
+      ['Total Orders', filteredData.totalOrders].join(','),
+      ['On Time Rate', filteredData.delayStats.rate].join(','),
+      ['Delayed Orders', filteredData.delayStats.delayed].join(','),
+      ...filteredData.ordersByMonth.map(d => ['Orders ' + d.month, d.count].join(',')),
+      ...filteredData.ordersBySize.map(d => ['Size ' + d.size, d.count].join(',')),
+    ].join('\n')
+    const blob = new Blob([csvData], { type: 'text/csv' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `analytics-${selectedRestaurant}-${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
+  }
+
+  const activeFiltersCount = Object.values(filters).filter(v => v !== 'all').length
+  const clearFilters = () => setFilters({ month: 'all', pizzaSize: 'all', pizzaType: 'all', paymentMethod: 'all' })
+
+  // Filter options
+  const months = useMemo(() => [...new Set(rawData?.ordersByMonth?.map(o => o.month) || [])].sort(), [rawData])
+  const pizzaSizes = useMemo(() => rawData?.ordersBySize?.map(o => o.size) || [], [rawData])
+  const pizzaTypes = useMemo(() => rawData?.ordersByType?.map(o => o.type) || [], [rawData])
+  const paymentMethods = useMemo(() => rawData?.paymentStats?.map(o => o.method) || [], [rawData])
+
+  const data = filteredData
+
   if (status === 'loading' || (canAccess && isLoading && !data)) {
     return (
       <div className="p-6 space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Analytics & Insights</h1>
-          <p className="text-slate-500">Analisis data delivery pizza</p>
-        </div>
+        <h1 className="text-2xl font-bold text-slate-800">Analytics & Insights</h1>
         <Card>
           <CardContent className="flex items-center justify-center py-16">
-            <div className="text-center">
-              <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
-              <p className="text-slate-500">Memuat data...</p>
-            </div>
+            <Loader2 className="h-8 w-8 animate-spin mx-auto text-blue-600" />
           </CardContent>
         </Card>
       </div>
@@ -473,13 +650,10 @@ export default function AnalyticsPage() {
   if (!canAccess) {
     return (
       <div className="p-6 space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Analytics</h1>
-          <p className="text-slate-500">Analisis data delivery pizza</p>
-        </div>
+        <h1 className="text-2xl font-bold text-slate-800">Analytics</h1>
         <Card>
           <CardContent className="p-8 text-center">
-            <p className="text-slate-500">Anda tidak memiliki akses ke halaman Analytics. Hubungi manager untuk akses.</p>
+            <p className="text-slate-500">Anda tidak memiliki akses ke halaman Analytics.</p>
           </CardContent>
         </Card>
       </div>
@@ -489,29 +663,22 @@ export default function AnalyticsPage() {
   if (error) {
     return (
       <div className="p-6 space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Analytics & Insights</h1>
-          <p className="text-slate-500">Analisis data delivery pizza</p>
-        </div>
+        <h1 className="text-2xl font-bold text-slate-800">Analytics & Insights</h1>
         <Card>
           <CardContent className="flex items-center justify-center py-16">
-            <div className="text-center">
-              <AlertCircle className="h-8 w-8 mx-auto mb-4 text-red-500" />
-              <p className="text-slate-500">{error}</p>
-              <button 
-                onClick={loadData}
-                className="mt-4 px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
-              >
-                Coba Lagi
-              </button>
-            </div>
+            <AlertCircle className="h-8 w-8 mx-auto mb-4 text-red-500" />
+            <p className="text-slate-500">{error}</p>
+            <Button onClick={loadData} className="mt-4">Coba Lagi</Button>
           </CardContent>
         </Card>
       </div>
     )
   }
 
-  const hasData = data && data.totalOrders > 0
+  const hasData = data && (data.totalOrders > 0 || (data.ordersByRestaurant && data.ordersByRestaurant.some((r: any) => r.count > 0)))
+
+  // If no data for selected restaurant but has restaurant comparison data, still show it
+  const showRestaurantComparison = data && data.ordersByRestaurant && data.ordersByRestaurant.some((r: any) => r.count > 0)
 
   if (!hasData) {
     return (
@@ -521,34 +688,21 @@ export default function AnalyticsPage() {
             <h1 className="text-2xl font-bold text-slate-800">Analytics & Insights</h1>
             <p className="text-slate-500">Analisis data delivery pizza dengan insights actionable</p>
           </div>
-
           {isSuperAdmin && restaurants.length > 0 && (
             <Select value={selectedRestaurant} onValueChange={setSelectedRestaurant}>
-              <SelectTrigger className="w-64">
-                <SelectValue placeholder="Pilih restoran" />
-              </SelectTrigger>
+              <SelectTrigger className="w-64"><SelectValue placeholder="Pilih restoran" /></SelectTrigger>
               <SelectContent>
-                {restaurants.map((restaurant) => (
-                  <SelectItem key={restaurant.id} value={restaurant.id}>
-                    {restaurant.name} ({restaurant.code})
-                  </SelectItem>
-                ))}
+                {restaurants.map(r => <SelectItem key={r.id} value={r.id}>{r.name} ({r.code})</SelectItem>)}
               </SelectContent>
             </Select>
           )}
         </div>
-
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16">
             <TrendingUp className="h-16 w-16 mb-4 opacity-30 text-slate-400" />
             <h3 className="text-lg font-semibold mb-2 text-slate-800">Belum Ada Data</h3>
-            <p className="text-center mb-6 max-w-md text-slate-500">
-              Data delivery belum tersedia. Silakan upload data order terlebih dahulu untuk melihat analytics dan insights.
-            </p>
-            <Link 
-              href="/upload"
-              className="flex items-center gap-2 px-6 py-3 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
-            >
+            <p className="text-center mb-6 max-w-md text-slate-500">Data delivery belum tersedia. Silakan upload data order terlebih dahulu.</p>
+            <Link href="/upload" className="flex items-center gap-2 px-6 py-3 rounded-lg bg-blue-600 text-white hover:bg-blue-700">
               <Upload className="w-5 h-5" />
               Upload Data
             </Link>
@@ -566,198 +720,208 @@ export default function AnalyticsPage() {
 
   return (
     <div className="p-6 space-y-6">
+      {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Analytics & Insights</h1>
-          <p className="text-slate-500">Analisis data delivery pizza dengan insights actionable</p>
+          <p className="text-slate-500">Analisis mendalam data delivery pizza</p>
         </div>
-
-        {isSuperAdmin && restaurants.length > 0 && (
-          <Select value={selectedRestaurant} onValueChange={setSelectedRestaurant}>
-            <SelectTrigger className="w-64">
-              <SelectValue placeholder="Pilih restoran" />
-            </SelectTrigger>
-            <SelectContent>
-              {restaurants.map((restaurant) => (
-                <SelectItem key={restaurant.id} value={restaurant.id}>
-                  {restaurant.name} ({restaurant.code})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-
-        {userRestaurantId && (
-          <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-100">
-            <span className="text-sm font-medium text-slate-700">
-              {restaurants.find(r => r.id === userRestaurantId)?.name || 'Restoran Anda'}
-            </span>
-          </div>
-        )}
+        <div className="flex items-center gap-3">
+          {isSuperAdmin && restaurants.length > 0 && (
+            <Select value={selectedRestaurant} onValueChange={setSelectedRestaurant}>
+              <SelectTrigger className="w-64"><SelectValue placeholder="Pilih restoran" /></SelectTrigger>
+              <SelectContent>
+                {restaurants.map(r => <SelectItem key={r.id} value={r.id}>{r.name} ({r.code})</SelectItem>)}
+              </SelectContent>
+            </Select>
+          )}
+          
+          <Button variant="outline" size="sm" onClick={loadAnalytics} className="gap-2">
+            <RefreshCw className="w-4 h-4" />
+            Refresh
+          </Button>
+          <Button variant="outline" size="sm" onClick={exportData} className="gap-2">
+            <Download className="w-4 h-4" />
+            Export
+          </Button>
+        </div>
       </div>
 
-      {/* Summary Stats */}
+      {/* Data Slicer */}
+      <DataSlicer
+        filters={filters}
+        setFilters={setFilters}
+        months={filterOptions.months}
+        pizzaSizes={filterOptions.pizzaSizes}
+        pizzaTypes={filterOptions.pizzaTypes}
+        paymentMethods={filterOptions.paymentMethods}
+        activeFiltersCount={activeFiltersCount}
+        onClearFilters={clearFilters}
+      />
+
+      {/* Summary Stats - KPI Cards with better styling */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
+        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
           <CardHeader className="pb-2">
-            <CardDescription className="flex items-center gap-2">
-              <TrendingUp className="w-4 h-4" /> Total Orders
+            <CardDescription className="flex items-center gap-2 font-bold">
+              <TrendingUp className="w-4 h-4 text-blue-600" /> Total Pesanan
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold text-slate-800">
-              {data.totalOrders.toLocaleString()}
-            </p>
+            <p className="text-3xl font-bold text-blue-700">{data.totalOrders.toLocaleString()}</p>
+            <p className="text-xs text-blue-600/70 mt-1">Berdasarkan filter aktif</p>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
           <CardHeader className="pb-2">
-            <CardDescription className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-green-600" /> On-Time Rate
+            <CardDescription className="flex items-center gap-2 font-bold">
+              <CheckCircle2 className="w-4 h-4 text-green-600" /> Tepat Waktu
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold text-green-600">
-              {data.delayStats.rate.toFixed(1)}%
-            </p>
+            <p className="text-3xl font-bold text-green-600">{data.delayStats.rate.toFixed(1)}%</p>
+            <p className="text-xs text-green-600/70 mt-1">
+              {data.delayStats.onTime} dari {data.totalOrders} pesanan</p>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="bg-gradient-to-br from-red-50 to-red-100 border-red-200">
           <CardHeader className="pb-2">
-            <CardDescription className="flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-red-600" /> Delayed
+            <CardDescription className="flex items-center gap-2 font-bold">
+              <AlertTriangle className="w-4 h-4 text-red-600" /> Terlambat
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold text-red-600">
-              {data.delayStats.delayed}
-            </p>
+            <p className="text-3xl font-bold text-red-600">{data.delayStats.delayed}</p>
+            <p className="text-xs text-red-600/70 mt-1">
+              {data.totalOrders > 0 ? ((data.delayStats.delayed / data.totalOrders) * 100).toFixed(1) : 0}% dari total</p>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
           <CardHeader className="pb-2">
-            <CardDescription className="flex items-center gap-2">
-              <Clock className="w-4 h-4" /> Peak Hour
+            <CardDescription className="flex items-center gap-2 font-bold">
+              <Clock className="w-4 h-4 text-purple-600" /> Jam Sibuk
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold text-slate-800">
-              {getPeakHour()}
-            </p>
+            <p className="text-3xl font-bold text-purple-700">{getPeakHour()}</p>
+            <p className="text-xs text-purple-600/70 mt-1">Volume pesanan tertinggi</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Charts Grid */}
+      {/* Charts Grid - Row 1: Trend & Restaurant */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <ChartCard 
-          title="Orders by Month"
-          description="Tren order per bulan"
-          explanation="Grafik ini menunjukkan pola musiman dalam jumlah pesanan. Identifikasi bulan-bulan dengan peningkatan pesanan untuk perencanaan marketing dan staffing."
+          title="Pesanan per Bulan"
+          description="Melihat tren penjualan pizza dari bulan ke bulan"
+          explanation="Grafik garis ini menunjukkan jumlah pesanan pizza setiap bulan. Garis yang naik menandakan penjualan sedang bagus, sedangkan garis turun menandakan butuh perhatian. Gunakan ini untuk melihat pola musiman dan merencanakan strategi bisnis."
+          insight={`Bulan ini ada ${data.ordersByMonth[data.ordersByMonth.length - 1]?.count || 0} pesanan. ${data.ordersByMonth.length > 1 ? (data.ordersByMonth[data.ordersByMonth.length - 1].count > data.ordersByMonth[0].count ? 'Penjualan cenderung naik 📈' : 'Penjualan cenderung turun 📉') : 'Data belum cukup untuk analisis'}.`}
+          recommendation="Kalau penjualan turun, pertimbangkan promo atau diskon. Kalau naik, pastikan stock bahan baku mencukupi untuk bulan depan."
         >
           <InteractiveLineChart 
-            data={data.ordersByMonth.map(d => ({ 
-              label: d.month.slice(0, 3), 
-              value: d.count 
-            }))} 
+            data={data.ordersByMonth.map(d => ({ label: d.month.slice(0, 3), value: d.count }))} 
             color="#f97316"
           />
         </ChartCard>
 
-        {isSuperAdmin && data.ordersByRestaurant.length > 0 && (
+        {showRestaurantComparison && data.ordersByRestaurant.length > 0 && (
           <ChartCard 
-            title="Orders by Restaurant"
-            description="Perbandingan antar restoran"
-            explanation="Membandingkan performa antar restoran dalam jumlah pesanan. Data ini berguna untuk evaluasi cabang dan alokasi sumber daya."
+            title="Pesanan per Restauran"
+            description="Membandingkan kinerja 5 restoran pizza"
+            explanation="Grafik batang ini membandingkan jumlah pesanan antar 5 restoran (Domino's, Pizza Hut, Little Caesars, Papa John's, Marco's). Bar yang lebih tinggi berarti restoran itu lebih banyak mendapat pesanan. Berguna untuk evaluasi kinerja masing-masing unit."
+            insight={`Restoran dengan pesanan tertinggi: ${data.ordersByRestaurant.sort((a, b) => b.count - a.count)[0]?.restaurant || '-'} (${data.ordersByRestaurant.sort((a, b) => b.count - a.count)[0]?.count || 0} pesanan). Restoran dengan pesanan terendah perlu dievaluasi.`}
+            recommendation="Berikan perhatian ekstra ke restoran dengan pesanan rendah. Pelajari apa yang dilakukan restoran dengan pesanan tinggi dan terapkan di restoran lain."
           >
             <InteractiveBarChart 
-              data={data.ordersByRestaurant.map(d => ({ 
-                label: d.restaurant.slice(0, 10), 
-                value: d.count 
-              }))} 
+              data={data.ordersByRestaurant.map(d => ({ label: d.restaurant, value: d.count }))} 
               color="#3b82f6"
             />
           </ChartCard>
         )}
       </div>
 
+      {/* Charts Grid - Row 2: Pizza Stats (3 columns) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <ChartCard 
-          title="Orders by Pizza Size"
-          description="Distribusi ukuran pizza"
-          explanation="Menampilkan preferensi pelanggan terhadap ukuran pizza. Data ini membantu menentukan stok bahan baku yang paling banyak dibutuhkan."
+          title="Pesanan per Ukuran Pizza"
+          description="ukuran pizza apa yang paling banyak dipesan"
+          explanation="Grafik lingkaran ini menunjukkan prefersi pelanggan dalam memilih ukuran pizza. Bagian yang lebih besar berarti ukuran tersebut lebih banyak dipesan. Ini penting untuk menentukan jumlah stock bahan baku."
+          insight={`Ukuran paling favorit: ${data.ordersBySize[0]?.size || '-'} dengan ${data.ordersBySize[0]?.count || 0} pesanan.`}
+          recommendation="Pastikan stock bahan untuk ukuran favorit selalu ada. Untuk ukuran yang jarang dipesan, coba buat bundle promo agar lebih banyak dipesan."
         >
-          <InteractivePieChart 
-            data={data.ordersBySize.map(d => ({ 
-              label: d.size, 
-              value: d.count 
-            }))} 
-          />
+          <InteractivePieChart data={data.ordersBySize.map(d => ({ label: d.size, value: d.count }))} />
         </ChartCard>
 
         <ChartCard 
-          title="Orders by Pizza Type"
-          description="Distribusi jenis pizza"
-          explanation="Menunjukkan popularitas berbagai jenis pizza. Gunakan data ini untuk mengoptimalkan menu dan strategi marketing."
+          title="Pesanan per Jenis Pizza"
+          description="Mengetahui rasa pizza favorit pelanggan"
+          explanation="Grafik donat ini menampilkan jenis/varian pizza apa yang paling banyak dipesan pelanggan. Bagian yang lebih besar berarti rasa tersebut lebih populer. Gunakan ini untuk menentukan menu andalan dan mengembangkan flavor baru."
+          insight={`Jenis pizza terlaris: ${data.ordersByType[0]?.type || '-'}. Jenis paling tidak laku: ${data.ordersByType[data.ordersByType.length - 1]?.type || '-'}.`}
+          recommendation="Fokuskan marketing pada pizza terlaris. Untuk pizza yang jarang dipesan, pertimbangkan untuk ganti menu atau buat variasi baru yang lebih menarik."
         >
           <InteractivePieChart 
-            data={data.ordersByType.map(d => ({ 
-              label: d.type, 
-              value: d.count 
-            }))} 
+            data={data.ordersByType.map(d => ({ label: d.type, value: d.count }))} 
             colors={['#2563eb', '#7c3aed', '#059669', '#dc2626', '#f59e0b', '#06b6d4']}
           />
         </ChartCard>
 
         <ChartCard 
-          title="Payment Methods"
-          description="Metode pembayaran favorit"
-          explanation="Memperlihatkan preferensi pelanggan dalam metode pembayaran. Pastikan metode yang paling populer selalu tersedia."
+          title="Metode Pembayaran"
+          description="Preferensi cara bayar pelanggan (tunai/non-tunai)"
+          explanation="Grafik donat ini menunjukkan bagaimana pelanggan membayar - apakah pakai Cash (tunai), Card (kartu), atau E-Wallet (digital). Penting untuk memastikan sistem pembayaran sesuai dengan keinginan pelanggan."
+          insight={`Metode paling favorit: ${data.paymentStats[0]?.method || '-'}.`}
+          recommendation="Pastikan sistem pembayaran favorit selalu lancar. Bisa juga berikan insentif untuk metode pembayaran yang ingin digenjot (misalnya: diskon e-wallet)."
         >
           <InteractivePieChart 
-            data={data.paymentStats.map(d => ({ 
-              label: d.method, 
-              value: d.count 
-            }))} 
+            data={data.paymentStats.map(d => ({ label: d.method, value: d.count }))} 
             colors={['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444']}
           />
         </ChartCard>
       </div>
 
-      {data.ordersByLocation.length > 0 && (
-        <ChartCard 
-          title="Top Locations"
-          description="Lokasi dengan order tertinggi"
-          explanation="Menampilkan area dengan permintaan tertinggi. Data ini membantu perencanaan ekspansi dan strategi delivery untuk area spesifik."
-        >
-          <InteractiveBarChart 
-            data={data.ordersByLocation.slice(0, 8).map(d => ({ 
-              label: d.location.split(',')[0] || d.location, 
-              value: d.count 
-            }))} 
-            color="#22c55e"
-          />
-        </ChartCard>
-      )}
+      {/* Charts Grid - Row 3: Lokasi Teratas & Jam Sibuk */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {(data.ordersByLocation.length > 0 || showRestaurantComparison) && (
+          <ChartCard 
+            title="Lokasi Teratas"
+            description="Area/geografis dengan pesanan tertinggi"
+            explanation="Grafik batang ini menampilkan 10 area/lokasi dengan volume pesanan tertinggi. Berguna untuk strategi ekspansi bisnis, optimasi rute delivery, dan perencanaan pembukaan cabang baru di area yang berpotensi."
+            insight={`Area dengan pesanan tertinggi: ${data.ordersByLocation[0]?.location || '-'} dengan ${data.ordersByLocation[0]?.count || 0} pesanan.`}
+            recommendation="Pertimbangkan ekspansi bisnis ke area sekitar lokasi dengan demand tinggi. Optimasi delivery routes untuk area-area ini agar pengiriman lebih efisien."
+          >
+            <InteractiveBarChart 
+              data={data.ordersByLocation.slice(0, 10).map(d => ({ 
+                label: d.location.length > 15 ? d.location.substring(0, 15) + '...' : d.location, 
+                value: d.count 
+              }))} 
+              color="#22c55e"
+            />
+          </ChartCard>
+        )}
 
-      {data.peakHourStats.length > 0 && (
-        <ChartCard 
-          title="Orders by Hour"
-          description="Distribusi order per jam"
-          explanation="Identifikasi jam-jam sibuk untuk optimasi jadwal driver dan persiapan. Tingkatkan staffing pada jam dengan volume tinggi."
-        >
-          <InteractiveBarChart 
-            data={data.peakHourStats.map(d => ({ 
-              label: `${d.hour}:00`, 
-              value: d.count 
-            }))} 
-            color="#8b5cf6"
-          />
-        </ChartCard>
-      )}
+        {data.peakHourStats.length > 0 && (
+          <ChartCard 
+            title="Pesanan per Jam"
+            description="Waktu terbaik untuk beroperasi (jam sibuk vs sepi)"
+            explanation="Grafik batang ini menampilkan distribusi pesanan berdasarkan jam pemesanan (0-23). Dengan ini kamu bisa melihat jam berapa paling banyak pesanan (sibuk) dan jam apa yang sepi. Berguna untuk mengatur jadwal staff dan driver."
+            insight={`Jam tersibuk: ${getPeakHour()} dengan volume pesanan tertinggi. Peak hours (11:00-13:00 dan 18:00-21:00) menyumbang ~${Math.round((data.peakHourStats.filter(h => (h.hour >= 11 && h.hour <= 13) || (h.hour >= 18 && h.hour <= 21)).reduce((sum, h) => sum + h.count, 0) / data.totalOrders * 100))}% dari total pesanan.`}
+            recommendation="Tingkatkan jumlah staff dan driver pada jam-jam sibuk (11:00-13:00 dan 18:00-21:00). Pertimbangkan sistem shift fleksibel untuk mengakomodasi pola ini."
+          >
+            <InteractiveBarChart 
+              data={data.peakHourStats.map(d => ({ label: `${d.hour}:00`, value: d.count }))} 
+              color="#8b5cf6"
+            />
+          </ChartCard>
+        )}
+      </div>
     </div>
   )
+}
+
+// Helper untuk useMemo
+function useMemo<T>(factory: () => T, deps: React.DependencyList): T {
+  return React.useMemo(factory, deps)
 }
