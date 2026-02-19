@@ -343,6 +343,9 @@ export default function ForecastingPage() {
   const { data: session, status } = useSession()
   const router = useRouter()
   
+  const userRole = (session?.user as any)?.role || (session?.user as any)?.position || 'STAFF'
+  const allowedRoles = ['GM', 'ADMIN_PUSAT']
+  
   const [dataSummary, setDataSummary] = useState<DataSummary | null>(null)
   const [dateColumn, setDateColumn] = useState('order_month')
   const [valueColumn, setValueColumn] = useState('estimated_duration')
@@ -357,7 +360,8 @@ export default function ForecastingPage() {
 
   useEffect(() => {
     if (status === 'unauthenticated') router.push('/login')
-  }, [status, router])
+    else if (status === 'authenticated' && !allowedRoles.includes(userRole)) router.push('/')
+  }, [status, userRole, router])
 
   useEffect(() => {
     fetchSummary()

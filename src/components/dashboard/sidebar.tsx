@@ -21,12 +21,12 @@ import {
 import { getInitials } from '@/lib/utils'
 
 const allNavigation = [
-  { name: 'Dashboard', href: '/', icon: LayoutDashboard, roles: ['GM', 'ADMIN_PUSAT', 'MANAGER'] },
+  { name: 'Dashboard', href: '/', icon: LayoutDashboard, roles: ['GM', 'ADMIN_PUSAT', 'MANAGER', 'ASMAN', 'ASISTEN_MANAGER', 'STAFF'] },
   { name: 'Analytics', href: '/analytics', icon: BarChart3, roles: ['GM', 'ADMIN_PUSAT', 'MANAGER'] },
   { name: 'Upload Data', href: '/upload', icon: Upload, roles: ['GM', 'ADMIN_PUSAT', 'MANAGER', 'ASMAN', 'ASISTEN_MANAGER', 'STAFF'] },
   { name: 'Data Order', href: '/orders', icon: ShoppingCart, roles: ['GM', 'ADMIN_PUSAT', 'MANAGER', 'ASMAN', 'ASISTEN_MANAGER', 'STAFF'] },
-  { name: 'Forecasting', href: '/forecasting', icon: TrendingUp, roles: ['GM', 'ADMIN_PUSAT', 'MANAGER'] },
-  { name: 'Rekomendasi', href: '/recommendation', icon: Sparkles, roles: ['GM', 'ADMIN_PUSAT', 'MANAGER'] },
+  { name: 'Forecasting', href: '/forecasting', icon: TrendingUp, roles: ['GM', 'ADMIN_PUSAT'] },
+  { name: 'Rekomendasi', href: '/recommendation', icon: Sparkles, roles: ['GM', 'ADMIN_PUSAT'] },
 ]
 
 const managerNavigation = [

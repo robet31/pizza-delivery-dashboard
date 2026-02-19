@@ -454,7 +454,7 @@ function DashboardContent() {
 
   const userRole = (session?.user as any)?.role || (session?.user as any)?.position || 'STAFF'
   const userName = session?.user?.name || ''
-  const allowedRoles = ['MANAGER', 'GM', 'ADMIN_PUSAT']
+  const allowedRoles = ['MANAGER', 'GM', 'ADMIN_PUSAT', 'ASMAN', 'ASISTEN_MANAGER', 'STAFF']
 
   useEffect(() => {
     if (status === 'unauthenticated') router.push('/login')

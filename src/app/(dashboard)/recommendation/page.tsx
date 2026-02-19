@@ -47,6 +47,10 @@ const CHART_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#e
 export default function RecommendationPage() {
   const { data: session, status } = useSession()
   const router = useRouter()
+  
+  const userRole = (session?.user as any)?.role || (session?.user as any)?.position || 'STAFF'
+  const allowedRoles = ['GM', 'ADMIN_PUSAT']
+  
   const [dataSummary, setDataSummary] = useState<DataSummary | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isCalculating, setIsCalculating] = useState(false)
@@ -58,7 +62,8 @@ export default function RecommendationPage() {
 
   useEffect(() => {
     if (status === 'unauthenticated') router.push('/login')
-  }, [status, router])
+    else if (status === 'authenticated' && !allowedRoles.includes(userRole)) router.push('/')
+  }, [status, userRole, router])
 
   useEffect(() => {
     fetchSummary()
