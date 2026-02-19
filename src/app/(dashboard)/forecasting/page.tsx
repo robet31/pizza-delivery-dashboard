@@ -227,6 +227,80 @@ export default function ForecastingPage() {
           } else {
             recommendations = '✅ Keterlambatan terkontrol. Jaga performa!'
           }
+        } else if (valueColumn === 'order_count') {
+          if (change > 20) {
+            recommendations = '🚀 BOOST: Prediksi menunjukkan KENAIKAN PESANAN signifikan! Segera:\n' +
+              '1. Tambah stok bahan baku\n' +
+              '2. Recruiting tambahan staff\n' +
+              '3. Siapkan extra shift\n' +
+              '4. Siapkan packaging tambahan\n' +
+              '5. Pertimbangkan promo lanjutan!'
+          } else if (change > 10) {
+            recommendations = '📈 Tren Bagus: Pesanan diprediksi naik. Siapkan:\n' +
+              '1. Inventory yang cukup\n' +
+              '2. Staffing yang memadai\n' +
+              '3. Marketing promo'
+          } else if (change > 5) {
+            recommendations = '⚡ Sedikit Naik: Pesanan sedikit meningkat. Monitoring:\n' +
+              '1. Stock daily\n' +
+              '2. Shift scheduling'
+          } else if (change < -10) {
+            recommendations = '📉 WARNING: Pesanan diprediksi TURUN tajam! Segera:\n' +
+              '1. Evaluasi marketing\n' +
+              '2. Diskon/promo darurat\n' +
+              '3. Survey customer\n' +
+              '4. Cek kompetitor'
+          } else if (change < -5) {
+            recommendations = '⚠️ Penurunan: Pesanan menurun. Evaluasi:\n' +
+              '1. Strategi promo\n' +
+              '2. Kualitas produk\n' +
+              '3. Service speed'
+          } else {
+            recommendations = '✅ Stabil: Jumlah pesanan stabil. Jaga:\n' +
+              '1. Konsistensi kualitas\n' +
+              '2. Service excellent\n' +
+              '3. Building customer loyalty'
+          }
+        } else if (valueColumn === 'pizza_type' || valueColumn === 'pizza_size') {
+          if (change > 10) {
+            recommendations = '📊 Insights: Jenis pizza tertentu SEDANG POPULER! Aksi:\n' +
+              '1. Prioritaskan stok bahan pizza populer\n' +
+              '2. Buat promo bundle untuk pizza tersebut\n' +
+              '3. Highlight di menu/marketing'
+          } else if (change > 5) {
+            recommendations = '📈 Tren: Mulai ada shift ke pizza tertentu. Siapkan:\n' +
+              '1. Stock bahan yang related\n' +
+              '2. Training staff untuk pizza popular'
+          } else {
+            recommendations = '✅ Diversifikasi: Variasi pizza tetap stabil. Jaga:\n' +
+              '1. Semua varian tersedia\n' +
+              '2. Quality consistency semua jenis'
+          }
+        } else if (valueColumn === 'payment_method') {
+          if (change > 10) {
+            recommendations = '💳 Shift: Metode pembayaran tertentu MENJADI POPULER! Pastikan:\n' +
+              '1. Payment gateway aktif\n' +
+              '2. Quick response untuk metode populer\n' +
+              '3. Promo khusus metode tersebut'
+          } else {
+            recommendations = '✅ Stabil: Pola pembayaran stabil. Monitor:\n' +
+              '1. Payment options availability\n' +
+              '2. Transaction speed'
+          }
+        } else if (valueColumn === 'traffic_level') {
+          if (change > 10) {
+            recommendations = '🚗 Waspada: Lalu lintas MENINGKAT! Siapkan:\n' +
+              '1. Driver lebih banyak\n' +
+              '2. Route optimization\n' +
+              '3. Estimated time adjustment'
+          } else if (change < -10) {
+            recommendations = '🚦 Lancar: Lalu lintas decreasing. Manfaatkan:\n' +
+              '1. Faster delivery time\n' +
+              '2. Lebih banyak order bisa handle\n' +
+              '3. Promo peak hour'
+          } else {
+            recommendations = '✅ Normal: Kondisi lalu lintas stabil.'
+          }
         } else {
           recommendations = '💡 Rekomendasi: Gunakan data ini untuk perencanaan staffing dan inventory di periode mendatang.'
         }
@@ -247,6 +321,8 @@ export default function ForecastingPage() {
     if (valueColumn.includes('duration') || valueColumn.includes('time')) return `${val.toFixed(1)} menit`
     if (valueColumn.includes('distance')) return `${val.toFixed(1)} km`
     if (valueColumn.includes('delay')) return `${val.toFixed(1)} menit`
+    if (valueColumn === 'order_count') return `${Math.round(val)} pesanan`
+    if (valueColumn === 'pizza_type' || valueColumn === 'pizza_size' || valueColumn === 'payment_method' || valueColumn === 'traffic_level') return `${Math.round(val)}x`
     return val.toFixed(1)
   }
 
@@ -308,6 +384,16 @@ export default function ForecastingPage() {
 
   const getValueColumnDescription = (v: string) => {
     switch(v) {
+      case 'order_count':
+        return 'Jumlah Pesanan'
+      case 'pizza_type':
+        return 'Tipe Pizza (Frekuensi)'
+      case 'pizza_size':
+        return 'Ukuran Pizza (Frekuensi)'
+      case 'payment_method':
+        return 'Metode Pembayaran'
+      case 'traffic_level':
+        return 'Level Lalu Lintas'
       case 'estimated_duration':
         return 'Waktu Pengiriman (menit)'
       case 'distance_km':
@@ -425,6 +511,11 @@ export default function ForecastingPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="order_count">📦 Jumlah Pesanan</SelectItem>
+                        <SelectItem value="pizza_type">🍕 Tipe Pizza (Frekuensi)</SelectItem>
+                        <SelectItem value="pizza_size">📏 Ukuran Pizza (Frekuensi)</SelectItem>
+                        <SelectItem value="payment_method">💳 Metode Pembayaran</SelectItem>
+                        <SelectItem value="traffic_level">🚗 Level Lalu Lintas</SelectItem>
                         <SelectItem value="estimated_duration">⏱️ Waktu Pengiriman (menit)</SelectItem>
                         <SelectItem value="distance_km">📍 Jarak Pengiriman (km)</SelectItem>
                         <SelectItem value="delay_min">⏰ Keterlambatan (menit)</SelectItem>

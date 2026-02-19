@@ -39,6 +39,14 @@ function movingAverage(data: number[], window: number = 3, periods: number = 7):
   return forecasts
 }
 
+function getMostFrequent(data: string[]): string {
+  const counts: { [key: string]: number } = {}
+  data.forEach(d => {
+    counts[d] = (counts[d] || 0) + 1
+  })
+  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || ''
+}
+
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -50,7 +58,7 @@ export async function POST(req: NextRequest) {
     const formData = await req.formData()
     const file = formData.get('file') as File
     const dateColumn = formData.get('date_column') as string || 'order_date'
-    const valueColumn = formData.get('value_column') as string || 'estimated_duration'
+    const valueColumn = formData.get('value_column') as string || 'order_count'
     const periods = parseInt(formData.get('periods') as string || '7')
 
     if (!file) {
@@ -65,19 +73,38 @@ export async function POST(req: NextRequest) {
     }
 
     const dateKey = Object.keys(csvData[0]).find(k => k.toLowerCase().includes('date') || k.toLowerCase().includes('month')) || dateColumn
-    const valueKey = Object.keys(csvData[0]).find(k => k.toLowerCase().includes(valueColumn.toLowerCase())) || valueColumn
 
-    const groupedData: { [key: string]: number } = {}
-    csvData.forEach(row => {
-      const dateVal = row[dateKey] || row[dateColumn] || ''
-      const valueVal = parseFloat(row[valueKey] || row[valueColumn] || '0') || 0
-      if (dateVal) {
-        if (!groupedData[dateVal]) {
-          groupedData[dateVal] = 0
+    let groupedData: { [key: string]: number } = {}
+    let categoryData: { [key: string]: { [key: string]: number } } = {}
+    let isCategorical = ['pizza_type', 'pizza_size', 'payment_method', 'traffic_level'].includes(valueColumn)
+    
+    if (isCategorical) {
+      csvData.forEach(row => {
+        const dateVal = row[dateKey] || row[dateColumn] || ''
+        const catVal = row[valueColumn] || ''
+        if (dateVal && catVal) {
+          if (!categoryData[dateVal]) categoryData[dateVal] = {}
+          categoryData[dateVal][catVal] = (categoryData[dateVal][catVal] || 0) + 1
         }
-        groupedData[dateVal] += valueVal
-      }
-    })
+      })
+      
+      Object.keys(categoryData).forEach(date => {
+        const mostFreq = getMostFrequent(Object.keys(categoryData[date]))
+        groupedData[date] = categoryData[date][mostFreq] || 0
+      })
+    } else {
+      csvData.forEach(row => {
+        const dateVal = row[dateKey] || row[dateColumn] || ''
+        const valueVal = parseFloat(row[valueColumn] || '0') || 0
+        if (dateVal) {
+          if (valueColumn === 'order_count') {
+            groupedData[dateVal] = (groupedData[dateVal] || 0) + 1
+          } else {
+            groupedData[dateVal] = (groupedData[dateVal] || 0) + valueVal
+          }
+        }
+      })
+    }
 
     const sortedDates = Object.keys(groupedData).sort()
     const timeSeriesData = sortedDates.map(date => groupedData[date])
@@ -109,7 +136,8 @@ export async function POST(req: NextRequest) {
       method: 'Moving Average',
       historical,
       forecast,
-      periods
+      periods,
+      isCategorical
     })
   } catch (error) {
     console.error('Forecasting error:', error)
