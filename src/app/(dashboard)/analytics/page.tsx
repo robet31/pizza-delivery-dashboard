@@ -442,8 +442,8 @@ function ChartCard({ title, description, explanation, insight, recommendation, c
     <Card className="h-full flex flex-col">
       <CardHeader className="pb-2">
         <div>
-          <CardTitle className="text-lg font-bold text-slate-800">{title}</CardTitle>
-          <CardDescription className="text-[8px] text-slate-500 mt-0.5">{description}</CardDescription>
+          <CardTitle className="text-xl font-bold text-slate-800">{title}</CardTitle>
+          <CardDescription className="text-sm text-slate-500 mt-1">{description}</CardDescription>
         </div>
       </CardHeader>
       <CardContent className="flex-1 min-h-[280px]">
