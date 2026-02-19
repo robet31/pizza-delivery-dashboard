@@ -32,7 +32,7 @@ import {
   ResponsiveContainer,
   Area,
   ComposedChart,
-  Bar
+  Brush
 } from 'recharts'
 
 interface ForecastResult {
@@ -446,9 +446,9 @@ export default function ForecastingPage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="w-full h-[450px]">
+                    <div className="w-full h-[500px] overflow-hidden">
                       <ResponsiveContainer width="100%" height="100%">
-                        <ComposedChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+                        <ComposedChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
                           <defs>
                             <linearGradient id="colorActual" x1="0" y1="0" x2="0" y2="1">
                               <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
@@ -462,15 +462,14 @@ export default function ForecastingPage() {
                           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                           <XAxis 
                             dataKey="name" 
-                            tick={{ fontSize: 12, fill: '#64748b' }}
+                            tick={{ fontSize: 11, fill: '#64748b' }}
                             tickLine={{ stroke: '#cbd5e1' }}
                             axisLine={{ stroke: '#cbd5e1' }}
-                            angle={-45}
-                            textAnchor="end"
-                            height={80}
+                            interval={0}
+                            height={60}
                           />
                           <YAxis 
-                            tick={{ fontSize: 12, fill: '#64748b' }}
+                            tick={{ fontSize: 11, fill: '#64748b' }}
                             tickLine={{ stroke: '#cbd5e1' }}
                             axisLine={{ stroke: '#cbd5e1' }}
                           />
@@ -516,6 +515,15 @@ export default function ForecastingPage() {
                             activeDot={{ r: 8, stroke: '#10b981', strokeWidth: 3, fill: '#fff' }}
                             name="Prediksi"
                             connectNulls
+                          />
+                          <Brush 
+                            dataKey="name" 
+                            height={40}
+                            stroke="#3b82f6"
+                            fill="#f1f5f9"
+                            tickFormatter={(value) => value.length > 8 ? value.substring(0, 6) + '..' : value}
+                            startIndex={Math.max(0, chartData.length - 15)}
+                            endIndex={chartData.length - 1}
                           />
                         </ComposedChart>
                       </ResponsiveContainer>
