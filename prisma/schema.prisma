@@ -6,10 +6,11 @@ generator client {
 // GANTI PROVIDER DIBAWAH INI:
 // SQLite:  provider = "sqlite"
 // SQL Server: provider = "sqlserver"
+// PostgreSQL: provider = "postgresql"
 
 datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model User {
