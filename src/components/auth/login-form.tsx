@@ -206,6 +206,8 @@ export function LoginForm() {
                   <Mail size={18} />
                 </div>
                 <Input
+                  id="email"
+                  name="email"
                   type="email"
                   placeholder="email"
                   required
@@ -220,6 +222,8 @@ export function LoginForm() {
                   <Lock size={18} />
                 </div>
                 <Input
+                  id="password"
+                  name="password"
                   type="password"
                   placeholder="password"
                   required
