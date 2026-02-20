@@ -1,46 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
-    const users = await prisma.user.findMany({
-      take: 10,
-      orderBy: { createdAt: 'desc' }
-    })
-    
+    const users = await prisma.user.findMany({ take: 5 })
     const count = await prisma.user.count()
     const deliveryCount = await prisma.deliveryData.count()
     const restaurantCount = await prisma.restaurant.count()
     
-    return NextResponse.json({
-      success: true,
-      database: 'connected',
-      counts: {
-        users: count,
-        deliveryData: deliveryCount,
-        restaurants: restaurantCount
-      },
-      recentUsers: users.map(u => ({
-        email: u.email,
-        name: u.name,
-        role: u.role,
-        isActive: u.isActive
-      })),
-      env: {
-        hasDatabaseUrl: !!process.env.DATABASE_URL,
-        nodeEnv: process.env.NODE_ENV
-      }
-    })
+    const html = `
+<!DOCTYPE html>
+<html>
+<head><title>Test DB</title></head>
+<body style="font-family: monospace; padding: 20px;">
+  <h1>✅ Database Connected!</h1>
+  <pre>
+  Users: ${count}
+  DeliveryData: ${deliveryCount}
+  Restaurants: ${restaurantCount}
+  
+  Sample Users:
+  ${users.map(u => `- ${u.email} (${u.role})`).join('\n  ')}
+  </pre>
+</body>
+</html>
+`
+    return new NextResponse(html, { headers: { 'Content-Type': 'text/html' } })
   } catch (error: any) {
-    return NextResponse.json({
-      success: false,
-      database: 'disconnected',
-      error: error.message,
-      code: error.code,
-      env: {
-        hasDatabaseUrl: !!process.env.DATABASE_URL,
-        nodeEnv: process.env.NODE_ENV
-      }
-    }, { status: 500 })
+    const html = `
+<!DOCTYPE html>
+<html>
+<head><title>Test DB</title></head>
+<body style="font-family: monospace; padding: 20px; color: red;">
+  <h1>❌ Database Error!</h1>
+  <pre>${error.message}</pre>
+</body>
+</html>
+`
+    return new NextResponse(html, { headers: { 'Content-Type': 'text/html' } })
   }
 }
