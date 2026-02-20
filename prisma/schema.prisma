@@ -3,11 +3,6 @@ generator client {
   binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
-// GANTI PROVIDER DIBAWAH INI:
-// SQLite:  provider = "sqlite"
-// SQL Server: provider = "sqlserver"
-// PostgreSQL: provider = "postgresql"
-
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -26,18 +21,8 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   lastLogin     DateTime?
-  sessions      Session[]
   auditLogs     AuditLog[]
   notifications Notification[]
-}
-
-model Session {
-  id           String   @id @default(uuid())
-  sessionToken String   @unique
-  userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  expires      DateTime
-  createdAt    DateTime @default(now())
 }
 
 model Restaurant {
@@ -103,8 +88,8 @@ model DeliveryData {
 
 model AuditLog {
   id            String     @id @default(uuid())
-  userId        String
-  user          User       @relation(fields: [userId], references: [id])
+  userId        String?
+  user          User?      @relation(fields: [userId], references: [id])
   action        String
   entity        String
   entityId      String?
@@ -121,8 +106,8 @@ model AuditLog {
 
 model Notification {
   id          String   @id @default(uuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
   type        String
   title       String
   message     String
